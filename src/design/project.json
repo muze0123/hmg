@@ -1,0 +1,10 @@
+{
+  "project": "HMG",
+  "brand": "teal",
+  "editableLabelColon": false,
+  "filterLabelColon": false,
+  "detailLabelColon": false,
+  "source": "DESIGN.md",
+  "sourceStatus": "existing-approved-project-specification",
+  "darkStatus": "project-extension"
+}

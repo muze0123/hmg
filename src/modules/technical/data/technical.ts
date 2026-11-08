@@ -1,0 +1,3 @@
+export const STATUS_CODES = ['pending', 'active', 'review', 'rejected', 'completed', 'paused'] as const;
+export interface TechnicalTask { id: string; regulation: string; project: string; name: string; status: typeof STATUS_CODES[number]; owner: string; reviewer: string; ready: boolean; value: string; opinion: string; }
+export const technicalTasks: TechnicalTask[] = Array.from({ length: 18 }, (_, i) => ({ id: `TECH-${String(i + 1).padStart(4, '0')}`, regulation: `EU-2024-${String(i + 1).padStart(3, '0')}`, project: `PROJ-${String(i + 1).padStart(4, '0')}`, name: `项目${i + 1}`, status: STATUS_CODES[i % 6]!, owner: '张三', reviewer: '李四', ready: i !== 0, value: i % 6 > 1 ? '1800' : '', opinion: '' }));
