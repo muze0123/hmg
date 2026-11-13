@@ -49,6 +49,8 @@ function emitChange(items = displayedItems.value) {
 function setVisible(item: ColumnSettingsItem, visible: boolean | (string | number | boolean)[]) {
   // 独立的 a-checkbox 只会抛 boolean；数组形态来自 checkbox-group，这里不接
   if (item.disabled || typeof visible !== 'boolean') return;
+  // 至少保留一个筛选项 / 列：取消最后一个可见项时直接拦截，避免整列 / 整筛选区被清空
+  if (!visible && displayedItems.value.filter((candidate) => candidate.visible).length <= 1) return;
   item.visible = visible;
   emitChange();
 }

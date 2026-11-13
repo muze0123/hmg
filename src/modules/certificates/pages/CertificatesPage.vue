@@ -1,29 +1,23 @@
 <script setup lang="ts">
+import ExecutionTaskList from "../../task-execution/components/ExecutionTaskList.vue";
+import { recordTaskEvent } from '../../projects/data/history';
 import { computed, ref, watch } from 'vue';
 import { onBeforeRouteLeave, onBeforeRouteUpdate, useRoute, useRouter } from 'vue-router';
 import { useI18n } from 'vue-i18n';
+import AppFieldLabel from '../../../design/components/AppFieldLabel.vue';
 import { Message } from '@arco-design/web-vue';
 import { certificates, type Certificate, type CertificateEntry } from '../data/certificates';
 import { projects } from '../../projects/data/projects';
 import { technicalTasks } from '../../technical/data/technical';
-import AppPagination from '../../../design/components/AppPagination.vue';
 import ConfirmDialog from '../../../shared/components/ConfirmDialog.vue';
 const { t } = useI18n();
 const route = useRoute();
 const router = useRouter();
 const base = '/tasks/certificates';
-const query = ref('');
-const status = ref('');
-const applied = ref('');
-const appliedStatus = ref('');
-const page = ref(1);
-const size = ref(10);
-const filtered = computed(() => certificates.value.filter(row => (!appliedStatus.value || row.status === appliedStatus.value) && `${row.number} ${row.project} ${row.regulation}`.toLowerCase().includes(applied.value.toLowerCase())));
-const visibleRows = computed(() => filtered.value.slice((page.value - 1) * size.value, page.value * size.value));
 const current = computed(() => certificates.value.find(row => row.id === route.params.id));
-const editing = computed(() => route.params.id === 'new' || (route.params.mode === 'edit' && !!current.value && !['review', 'completed'].includes(current.value.status)));
+const editing = computed(() => route.params.id === 'new' || (route.params.mode === 'edit' && !!current.value && ['pending', 'submitting', 'rejected', 'withdrawn'].includes(current.value.status)));
 const entries = ref<CertificateEntry[]>([]);
-const reviewing = computed(() => route.params.mode === 'review' && current.value?.status === 'review');
+const reviewing = computed(() => route.params.mode === 'review' && current.value?.status === 'reviewing');
 const draft = ref<Certificate>();
 const snapshot = ref('');
 const opinion = ref('');
@@ -58,7 +52,6 @@ function guard() {
 }
 onBeforeRouteLeave(guard);
 onBeforeRouteUpdate(guard);
-function search() { applied.value = query.value.trim(); appliedStatus.value = status.value; page.value = 1; }
 function selectProject() {
   if (!draft.value) return;
   entries.value = [...new Set(technicalTasks.filter(row => row.project === draft.value?.project).map(row => row.regulation))].map(regulation => ({ regulation, number: '', issuer: '', agency: '', issued: '', expires: '', file: null }));
@@ -76,7 +69,7 @@ function save(submit = false) {
   if (!editing.value) return;
   const invalid = entries.value.findIndex(entry => (submit && (!entry.number.trim() || !entry.issuer.trim() || !entry.agency.trim() || !entry.issued || !entry.file)) || !!(entry.expires && entry.expires < entry.issued));
   if (!row.project || !entries.value.length || invalid >= 0) {
-    Message.error(t('cert.required'));
+    Message.error(t('cert.reviewRequired'));
     document.querySelectorAll<HTMLElement>('.certificate-entry')[Math.max(0, invalid)]?.querySelector<HTMLElement>('input')?.focus();
     return;
   }
@@ -84,7 +77,9 @@ function save(submit = false) {
   row.regulation = entries.value.map(entry => entry.regulation).join(', ');
   row.entries = entries.value.map(entry => ({ ...entry }));
   busy.value = true;
-  row.status = submit ? 'review' : 'pending';
+  recordTaskEvent(row.project, 'certificate', submit ? 'review' : 'draft', undefined, '', row.id);
+  row.status = submit ? 'reviewing' : 'submitting';
+  if (submit) { row.executedAt = new Date().toLocaleString('sv-SE', { timeZone: 'Asia/Shanghai' }); row.reviewedAt = ''; }
   const index = certificates.value.findIndex(item => item.id === row.id);
   if (index < 0) certificates.value.push({ ...row });
   else certificates.value[index] = { ...row };
@@ -94,8 +89,11 @@ function save(submit = false) {
   router.push(base);
 }
 function review(approved: boolean) {
-  if (!current.value || !reviewing.value || !opinion.value.trim()) { Message.error(t('sections.required')); return; }
+  if (!current.value || !reviewing.value || !opinion.value.trim()) { Message.error(t('cert.reviewRequired')); return; }
+  recordTaskEvent(current.value.project, 'certificate', approved ? 'approve' : 'reject', undefined, opinion.value, current.value.id);
   current.value.status = approved ? 'completed' : 'rejected';
+  current.value.reviewedAt = new Date().toLocaleString('sv-SE', { timeZone: 'Asia/Shanghai' });
+  current.value.actual = approved ? current.value.reviewedAt.slice(0, 10) : '';
   current.value.opinion = opinion.value.trim();
   current.value.history = [...(current.value.history || []), { opinion: opinion.value.trim(), approved, time: new Date().toISOString() }];
   initialOpinion.value = opinion.value;
@@ -121,32 +119,7 @@ function download(entry: CertificateEntry) {
 <template>
   <main class="cert-page">
     
-    <template v-if="!route.params.id">
-      <section class="filters">
-        <a-input v-model="query" :input-attrs="{ 'aria-label': t('cert.number') }" :placeholder="t('cert.number')" allow-clear @press-enter="search" />
-        <a-select v-model="status" :aria-label="t('projects.status')" :placeholder="t('projects.status')" allow-clear>
-          <a-option v-for="code in ['pending', 'active', 'review', 'rejected', 'completed', 'paused']" :key="code" :value="code">{{ t('projects.' + code) }}</a-option>
-        </a-select>
-        <a-button @click="query = ''; status = ''; search()">{{ t('projects.reset') }}</a-button>
-        <a-button type="primary" @click="search">{{ t('projects.search') }}</a-button>
-      </section>
-      <section class="content">
-        <a-button type="primary" @click="router.push(`${base}/new`)">{{ t('cert.new') }}</a-button>
-        <a-table :data="visibleRows" :pagination="false" row-key="id" :scroll="{ x: 1300 }">
-          <template #columns>
-            <a-table-column v-for="key in ['number', 'project', 'regulation', 'issuer', 'agency', 'issued', 'expires']" :key="key" :data-index="key" :title="key === 'project' ? t('projects.id') : key === 'regulation' ? t('wb.regulation') : t('cert.' + key)" />
-            <a-table-column :title="t('projects.status')"><template #cell="{ record }">{{ t('projects.' + record.status) }}</template></a-table-column>
-            <a-table-column :title="t('projects.actions')" :width="220"><template #cell="{ record }">
-              <a-button type="text" @click="router.push(`${base}/${record.id}/view`)">{{ t('projects.view') }}</a-button>
-              <a-button type="text" :disabled="['review','completed'].includes(record.status)" @click="router.push(`${base}/${record.id}/edit`)">{{ t('projects.edit') }}</a-button>
-              <a-button type="text" :disabled="record.status !== 'review'" @click="router.push(`${base}/${record.id}/review`)">{{ t('sections.review') }}</a-button>
-            </template></a-table-column>
-          </template>
-          <template #empty><a-empty :description="t('sections.empty')" /></template>
-        </a-table>
-        <AppPagination v-model:current="page" v-model:page-size="size" :total="filtered.length" />
-      </section>
-    </template>
+    <ExecutionTaskList v-if="!route.params.id" module="certificates" :rows="certificates" />
     <section v-else class="content editor">
       <a-button @click="router.push(base)">{{ t('projects.back') }}</a-button>
       <template v-if="draft">
@@ -154,14 +127,15 @@ function download(entry: CertificateEntry) {
         <a-select v-if="editing" v-model="draft.project" :aria-label="t('cert.project')" :placeholder="t('cert.project')" @change="selectProject">
           <a-option v-for="project in projects" :key="project.id" :value="project.id">{{ project.id }} · {{ project.name }}</a-option>
         </a-select>
-        <a-descriptions v-if="selectedProject" :column="1">
-          <a-descriptions-item v-for="key in ['id','name','brand','series','model','owner','begin','end'] as const" :key="key" :label="t('projects.' + key)">{{ selectedProject[key] }}</a-descriptions-item>
+        <a-descriptions v-if="selectedProject" :column="{ xs: 1, sm: 2, lg: 3 }">
+          <a-descriptions-item v-for="key in ['id','name','brand','series','model','owner','createdAt','deadline'] as const" :key="key" :label="t('projects.' + key)">{{ selectedProject[key] }}</a-descriptions-item>
         </a-descriptions>
         <h2>{{ t('cert.regulations') }}</h2>
         <a-empty v-if="!entries.length" :description="t('cert.project')" />
         <a-form v-for="(entry, index) in entries" :key="entry.regulation" class="certificate-entry" :model="entry" layout="vertical">
           <a-form-item :label="t('wb.regulation')">{{ entry.regulation || '—' }}</a-form-item>
-          <a-form-item v-for="key in ['number','issuer','agency','issued','expires'] as const" :key="key" :label="t('cert.' + key)" :required="editing && key !== 'expires'">
+          <a-form-item v-for="key in ['number','issuer','agency','issued','expires'] as const" :key="key" :required="editing && key !== 'expires'">
+            <template #label><AppFieldLabel :text="t('cert.' + key)" /></template>
             <a-date-picker v-if="editing && (key === 'issued' || key === 'expires')" v-model="entry[key]" :aria-label="`${t('cert.' + key)} ${index + 1}`" />
             <a-input v-else-if="editing" v-model="entry[key]" :input-attrs="{ 'aria-label': `${t('cert.' + key)} ${index + 1}` }" />
             <span v-else>{{ entry[key] || '—' }}</span>
@@ -179,22 +153,22 @@ function download(entry: CertificateEntry) {
 </template>
 
 <style scoped>
-.cert-page{padding:var(--mt-ds-space-6);color:var(--app-text-primary);min-width:0}.note{color:var(--app-text-secondary)}.filters{display:flex;gap:var(--mt-ds-space-4);flex-wrap:wrap;margin-bottom:var(--mt-ds-space-4)}.filters>.arco-input-wrapper,.filters>.arco-select{width:var(--mt-filter-control-width,240px)}.content{background:var(--app-surface-container);padding:var(--mt-ds-space-6);min-width:0}.content :deep(.arco-table){margin-top:var(--mt-ds-space-4)}.content :deep(th),.content :deep(td){font-weight:400}.editor :deep(.arco-form){max-width:var(--mt-form-width,640px)}h2{font-size:var(--app-font-size-lg,16px)}@media(max-width:760px){.cert-page,.content{padding:var(--mt-ds-space-4)}.filters>*{width:100%!important}}
-
-.cert-page, .content { padding: var(--mt-ds-space-4); }
-.filters > .arco-input-wrapper, .filters > .arco-select { width: var(--mt-ds-filter-width); }
-.editor :deep(.arco-form) { width: var(--mt-ds-form-width); max-width: 100%; }
-
+.cert-page { min-width: 0; color: var(--app-text-primary); }
+.filters, .content { background: var(--app-surface-container); padding: var(--mt-ds-space-4); min-width: 0; }
+/* 筛选区布局统一走 global.css 的 app-filter-strip / app-filter-unit / app-filter-actions */
+.filters { margin-bottom: var(--mt-ds-space-3); }
+.content :deep(.arco-table-cell) { white-space: nowrap; }
+.content :deep(th), .content :deep(td), .content :deep(.arco-btn-text) { font-weight: var(--mt-ds-weight-body); }
+.content :deep(th), .content :deep(td) { height: 50px; }
+.content :deep(.mt-pagination) { justify-content: flex-end; margin-top: var(--mt-ds-space-4); }
+.editor > .arco-select { width: var(--mt-ds-form-width); max-width: 100%; margin-bottom: var(--mt-ds-space-4); }
+.certificate-entry { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); column-gap: var(--mt-ds-space-6); padding-top: var(--mt-ds-space-4); border-top: 1px solid var(--app-divider); margin-bottom: var(--mt-ds-space-4); }
+.certificate-entry :deep(.arco-picker) { width: 100%; }
+.certificate-entry :deep(.arco-form-item) { min-width: 0; }
+.editor > .arco-textarea-wrapper { margin-bottom: var(--mt-ds-space-4); }
+h2 { margin: var(--mt-ds-space-6) 0 var(--mt-ds-space-4); font-size: var(--mt-ds-font-title); line-height: var(--mt-ds-line-title); font-weight: var(--mt-ds-weight-title); }
 @media (max-width: 600px) {
- .filters { flex-direction: column; align-items: stretch; }
- .filters > *, .filters > .arco-input-wrapper, .filters > .arco-select { width: 100%; }
- .filters :deep(.arco-form-item) { grid-template-columns: minmax(0, 1fr); width: 100%; }
- .filters :deep(.arco-form-item-label-col) { text-align: left; }
+  .certificate-entry { grid-template-columns: minmax(0, 1fr); }
+  .content :deep(.arco-space) { flex-wrap: wrap; }
 }
-
-:deep(.arco-table-th) { background: var(--app-surface); font-weight: var(--mt-ds-weight-body); }
-:deep(.arco-table-container) { border: 0; }
-:deep(.arco-table-td) { border-bottom: 1px solid var(--app-divider); }
-:deep(.arco-form-item-label) { font-weight: var(--mt-ds-weight-body); }
-h2 { font-size: var(--mt-ds-font-title); line-height: var(--mt-ds-line-title); font-weight: var(--mt-ds-weight-title); }
 </style>

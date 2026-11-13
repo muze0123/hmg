@@ -1,7 +1,9 @@
+import { projects, MOCK_CURRENT_USER } from '../../projects/data/projects';
+import { TASK_STATUSES } from '../../../shared/taskLifecycle';
 import { reactive } from 'vue';
 import { technicalTasks } from '../../technical/data/technical';
 
-export const STATUS_CODES = ['notStarted', 'inProgress', 'pending', 'reviewing', 'rejected', 'completed', 'paused'] as const;
+export const STATUS_CODES = TASK_STATUSES;
 export const FORMAT_CODES = ['number', 'ordered', 'table', 'rich', 'text'] as const;
 export const PRIORITY_CODES = ['urgent', 'high', 'normal'] as const;
 export type Status = typeof STATUS_CODES[number];
@@ -11,6 +13,7 @@ export interface EntryValue { text: string; rows: TableRow[] }
 export interface TestItem { id: string; name: string; format: Format; tag: 'required' | 'optional'; reference?: string }
 export interface ReviewRecord { id: string; reviewer: string; result: 'passed' | 'rejected'; opinion: string; time: string }
 export interface TestTask {
+  createdAt: string; executedAt: string; reviewedAt: string;
   id: string; regulation: string; project: string; name: string;
   priority: typeof PRIORITY_CODES[number]; status: Status;
   start: string; end: string; actual: string; owner: string; reviewer: string;
@@ -38,10 +41,11 @@ export const testTasks = reactive<TestTask[]>(Array.from({ length: 21 }, (_, ind
     rows: [{ parameter: 'T (°C)', result: '23' }],
   } : emptyValue()]))]));
   return {
+    createdAt: '2026-11-01 09:00:00', executedAt: status === 'pending' ? '' : '2026-11-02 10:00:00', reviewedAt: status === 'completed' ? '2026-11-07 16:00:00' : '',
     id: `TEST-${number}`, regulation: `${index < 2 ? 'GB' : 'EU'}-2024-${String(index + 1).padStart(3, '0')}`,
-    project: `PROJ-${number}`, name: `项目${index + 1}`, priority: PRIORITY_CODES[index % 3]!, status,
+    project: projects.value[index % projects.value.length]!.id, name: projects.value[index % projects.value.length]!.name, priority: PRIORITY_CODES[index % 3]!, status,
     start: '2026-11-01', end: '2026-11-30', actual: status === 'completed' ? '2026-11-07' : '',
-    owner: '张三', reviewer: '李四', vehicleReady: index !== 0, template: 'TPL-TEST-0001', version: 'V1.0',
+    owner: index % 16 === 3 ? MOCK_CURRENT_USER.name : '张三', reviewer: index % 16 === 11 ? MOCK_CURRENT_USER.name : '李四', vehicleReady: index !== 0, template: 'TPL-TEST-0001', version: 'V1.0',
     models, items, values, history: status === 'rejected' ? [{ id: `REVIEW-${number}`, reviewer: '李四', result: 'rejected', opinion: '请补充试验条件', time: '2026-11-06 10:00:00' }] : [],
   };
 }));

@@ -34,8 +34,8 @@ watch(() => route.fullPath, () => { open.value = false; });
             <div class="account-identity-roles" :aria-label="t('account.roles')">—</div>
           </div>
         </section>
-        <a class="account-menu-item" :href="openDataAccountUrl" @click="open = false"><IconUser :size="18" /><span>{{ t('account.title') }}</span><IconRight class="account-menu-arrow" /></a>
-        <a class="account-menu-item" :href="openDataAuditUrl" @click="open = false"><IconHistory :size="18" /><span>{{ t('account.audit') }}</span><IconRight class="account-menu-arrow" /></a>
+        <a class="account-menu-item" :href="openDataAccountUrl" target="_blank" rel="noopener noreferrer" @click="open = false"><IconUser :size="18" /><span>{{ t('account.title') }}</span><IconRight class="account-menu-arrow" /></a>
+        <a class="account-menu-item" :href="openDataAuditUrl" target="_blank" rel="noopener noreferrer" @click="open = false"><IconHistory :size="18" /><span>{{ t('account.audit') }}</span><IconRight class="account-menu-arrow" /></a>
         <div class="account-menu-divider" />
         <button class="account-menu-item" type="button" @click="open = false; authStore.logout()"><IconPoweroff :size="18" /><span>{{ t('account.logout') }}</span></button>
       </div>

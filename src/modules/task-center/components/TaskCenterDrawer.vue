@@ -221,11 +221,11 @@ function downloadErrorData(task: ImportTaskRecord) {
         <a-tab-pane key="download" :title="t('taskCenter.tabs.download')" />
       </a-tabs>
 
-      <!-- 筛选栅栏（DESIGN.md · Filter strip packing）：label + 200px 控件为一个 hug-content 单元，
-           16px 行列间距换行排布；查询/重置紧跟最后一个筛选单元。 -->
-      <form class="tc-filters" @submit.prevent="applyFilters">
-        <div v-for="key in FILTER_KEYS" :key="key" class="tc-filter-field">
-          <label class="tc-filter-label" :for="`tc-filter-${key}`">{{ t(`taskCenter.filters.${key}`) }}</label>
+      <!-- 筛选栅栏（DESIGN.md · Filter strip packing）：字段名称在上、200px 控件在下，
+           4px 内间距、16px 行列间距；查询/重置紧跟最后一个筛选组件右侧。 -->
+      <form class="tc-filters app-filter-strip" @submit.prevent="applyFilters">
+        <div v-for="key in FILTER_KEYS" :key="key" class="tc-filter-field app-filter-unit">
+          <label class="tc-filter-label app-field-label" :for="`tc-filter-${key}`">{{ t(`taskCenter.filters.${key}`) }}</label>
           <a-select
             v-if="key === 'module'"
             :id="`tc-filter-${key}`"
@@ -257,14 +257,14 @@ function downloadErrorData(task: ImportTaskRecord) {
             value-format="YYYY-MM-DD"
           />
         </div>
-        <div class="tc-filter-actions">
+        <div class="tc-filter-actions app-filter-actions">
           <a-button type="primary" html-type="submit">
             <template #icon><IconSearch /></template>
-            {{ t('taskCenter.filters.search') }}
+            {{ t('designSystem.search') }}
           </a-button>
           <a-button class="app-btn-neutral" html-type="button" @click="resetFilters">
             <template #icon><IconRefresh /></template>
-            {{ t('taskCenter.filters.reset') }}
+            {{ t('designSystem.reset') }}
           </a-button>
         </div>
       </form>
@@ -385,26 +385,9 @@ function downloadErrorData(task: ImportTaskRecord) {
    此处只保留自有元素样式。 */
 .tc-body { display: flex; flex: 1; flex-direction: column; min-height: 0; }
 
-/* 筛选栅栏：16px 行列间距的换行容器，单元 hug content（DESIGN.md · Filter strip packing）；
-   抽屉内筛选条不带底部分割线 */
-.tc-filters {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 16px;
-  min-width: 0;
-  padding: 16px 0;
-}
-.tc-filter-field {
-  display: grid;
-  grid-template-columns: max-content 200px;
-  align-items: center;
-  gap: 8px;
-  min-width: 0;
-  white-space: nowrap;
-}
-.tc-filter-label { color: var(--color-text-2); text-align: right; line-height: 22px; }
-.tc-filter-actions { display: flex; align-items: center; gap: 8px; }
+/* 筛选栅栏布局统一走 global.css 的 app-filter-strip / app-filter-unit / app-filter-actions；
+   抽屉内筛选条只保留上下留白，不带底部分割线 */
+.tc-filters { padding: 16px 0; }
 
 /* 静态说明条：info 面、4px 圆角、无阴影（DESIGN.md · Alert） */
 .tc-note { margin-top: 16px; border-radius: 4px; }
@@ -478,9 +461,5 @@ function downloadErrorData(task: ImportTaskRecord) {
 }
 .pagination-jump-label, .pagination-total-pages { color: var(--color-text-3); font-size: 14px; line-height: 22px; }
 
-@media (max-width: 900px) {
-  .tc-filters { align-items: stretch; flex-direction: column; }
-  .tc-filter-field { grid-template-columns: max-content minmax(0, 1fr); }
-  .tc-filter-actions { justify-content: flex-end; }
-}
+/* 窄屏流式布局由 global.css 的 .app-filter-strip 媒体查询统一处理 */
 </style>

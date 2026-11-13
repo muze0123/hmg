@@ -2,7 +2,16 @@
   font-family: -apple-system, BlinkMacSystemFont, 'PingFang SC', 'Hiragino Sans GB',
     'Microsoft YaHei', 'Helvetica Neue', Arial, sans-serif;
   --app-page-gutter: 16px;
+  /* 字段名称尾冒号（DESIGN.md · Field label colon，2026-11-06 用户裁决）：
+     冒号是随 <html lang> 切换的 CSS token，不是文案，不得写入 i18n 或模板。 */
+  --app-field-colon: '：';
 }
+html[lang^='en'] { --app-field-colon: ':'; }
+/* 全局单一渲染点：字段标签与只读详情标签各渲染一次，页面不得自行补冒号，
+   也不启用 Arco 的 colon prop（它固定输出半角冒号且前置空格，无法随语言切换）。
+   AppFieldLabel 按 project.json 的标点档位挂 .app-field-label；本轮筛选区档位为 true，
+   少数裸 <label> 在页面里直接补该类。筛选标签同时保留页面类，冒号是行内文本流。 */
+.app-field-label::after, .app-detail-label::after { content: var(--app-field-colon); }
 
 *, *::before, *::after { box-sizing: border-box; }
 html, body, #app { min-width: 320px; min-height: 100%; margin: 0; }
@@ -156,6 +165,122 @@ body .arco-form-item-status-error .arco-picker-focused:not(.arco-picker-disabled
 }
 .row-more-dropdown .arco-dropdown-option.row-more-danger,
 .row-more-dropdown .arco-dropdown-option.row-more-danger:hover { color: rgb(var(--danger-6)); }
+
+/* ---------------------------------------------------------------- 筛选条件栅栏（2026-11-09 用户裁决，2026-11-10 全站统一）
+   上下结构：字段名称在上（12px/20，左对齐），组件在下（200px/32px，左对齐），两者间距 4px；
+   各筛选单元等宽 200px、以 16px 行列间距换行形成栅栏；查询 / 重置 / 筛选设置（列设置）
+   组成最后一个单元，紧跟最后一个组件右侧，组内左对齐并与组件底边对齐。
+   共享类在此统一维护，所有列表页、设计系统示例页与导入导出抽屉的查询区一律使用；
+   页面不得再写左右结构的私有覆盖。body 前缀用于把特异性抬到 Arco 懒加载样式与组件
+   scoped 样式之上（与下方控件表面规则同理）。 */
+body .app-filter-strip {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: var(--mt-ds-space-4);
+  min-width: 0;
+}
+body .app-filter-strip .app-filter-unit {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--mt-ds-space-1);
+  width: var(--mt-ds-filter-width);
+  max-width: 100%;
+  min-width: 0;
+  margin: 0;
+  white-space: normal;
+}
+/* 字段名称：12px/20/400，左对齐；同时覆盖 AppFieldLabel 的 span、裸 label 与 a-form-item 的 label */
+body .app-filter-strip .app-filter-unit :is(.mt-field-label, .arco-form-item-label),
+body .app-filter-strip .app-filter-unit > label {
+  font-size: var(--mt-ds-font-caption);
+  line-height: var(--mt-ds-line-caption);
+  font-weight: var(--mt-ds-weight-body);
+  color: var(--color-text-2);
+  text-align: left;
+}
+/* 字段名称尾冒号（DESIGN.md · Filter label colon）：筛选标签与全站字段标签共用文件顶部
+   唯一的 .app-field-label::after 渲染点，AppFieldLabel 输出该类，少数裸 label 在页面里补该类。
+   这里不再写第二条 ::after 规则——包裹型 <label>（如 TagsPage / ArchivePage）若按元素名匹配，
+   冒号会落到控件之后形成游离标点。冒号是标签的行内文本，不占 flex gap，
+   4px 标签-控件间距与 200px 控件宽度不变。筛选标签保持 display: inline 的行内文本流，
+   避免 flex + gap 把 ::after 拆成独立 flex 项而在冒号前留出空隙。 */
+body .app-filter-strip .app-filter-unit .app-field-label { display: inline; }
+/* 组件占满 200px 单元轨道：直接子控件与 a-form-item 的 wrapper-col 内控件都覆盖 */
+body .app-filter-strip .app-filter-unit > :is(.app-filter-control, .arco-input-wrapper, .arco-input-search, .arco-select, .arco-picker),
+body .app-filter-strip .app-filter-unit > .arco-form-item-wrapper-col > :is(.app-filter-control, .arco-input-wrapper, .arco-input-search, .arco-select, .arco-picker) {
+  width: 100%;
+  max-width: 100%;
+}
+/* a-form-item 型筛选单元：label-col / wrapper-col 改为上下堆叠，控件占满 200px 轨道 */
+body .app-filter-strip .app-filter-unit.arco-form-item > .arco-form-item-label-col,
+body .app-filter-strip .app-filter-unit.arco-form-item > .arco-form-item-wrapper-col {
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  min-height: 0;
+  flex: none;
+  margin: 0;
+  padding: 0;
+  text-align: left;
+}
+body .app-filter-strip .app-filter-unit.arco-form-item > .arco-form-item-label-col {
+  line-height: var(--mt-ds-line-caption);
+  justify-content: flex-start;
+}
+/* Arco 的 a-form-item 标签默认右对齐并带右侧内边距，会把字段名称推离单元左边缘 */
+body .app-filter-strip .app-filter-unit .arco-form-item-label {
+  width: 100%;
+  margin: 0;
+  padding: 0;
+  text-align: left;
+}
+body .app-filter-strip .app-filter-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-start;
+  gap: var(--mt-ds-space-2);
+  min-width: 0;
+}
+@media (max-width: 600px) {
+  body .app-filter-strip { flex-direction: column; align-items: stretch; }
+  body .app-filter-strip .app-filter-unit { width: 100%; }
+  body .app-filter-strip .app-filter-actions { justify-content: flex-start; }
+}
+
+/* ---------------------------------------------------------------- Tabs 标签页（2026-11-12 用户裁决，全站统一）
+   悬浮单个 tab 时只高亮文字颜色，文本块与 tab 区块都不得出现背景；选中态的层级高于悬浮态。
+   Arco 默认把悬浮反馈做成背景块：line 类型画在 .arco-tabs-tab-title::before（Fill-2），
+   text 类型画在 title 本身，card / card-gutter / rounded / capsule 画在 .arco-tabs-tab 上；
+   同时 Arco 的 hover 文字颜色仍是 Text-2，等于「有背景、无高亮」，与本裁决正好相反。
+   这四类背景在这里一并清成各自的常态值，hover 只保留 --primary-5 的文字高亮（400 字重不变）。
+   :not(active) / :not(disabled) 把已选中与禁用项完全排除在悬浮规则之外，再显式声明选中态，
+   因此 hover 到当前 tab 上不会抢走主色 / 500 字重 / ink 下划线；--primary-5 比选中的
+   --primary-6 浅一档，视觉层级同样是 选中 > 悬浮。body 前缀把特异性抬到 Arco 懒加载样式、
+   暗色属性选择器与页面 scoped 覆盖之上；页面不得再写局部 hover / 颜色规则。 */
+body .arco-tabs-nav .arco-tabs-tab:not(.arco-tabs-tab-active):not(.arco-tabs-tab-disabled):hover {
+  color: rgb(var(--primary-5));
+  font-weight: 400;
+  background-color: transparent;
+}
+/* 文本块背景：line 的伪层 + text 类型的 title，悬浮时都保持透明 */
+body .arco-tabs-nav-type-line .arco-tabs-tab:hover .arco-tabs-tab-title::before,
+body .arco-tabs-nav-type-line .arco-tabs-tab-active:hover .arco-tabs-tab-title::before,
+body .arco-tabs-nav-type-text .arco-tabs-tab-title:hover {
+  background-color: transparent;
+}
+/* card / card-gutter / rounded / capsule：悬浮背景回到各自的常态值，不改变选中态底色 */
+body .arco-tabs-nav-type-card-gutter .arco-tabs-tab:not(.arco-tabs-tab-active):not(.arco-tabs-tab-disabled):hover {
+  background-color: var(--color-fill-1);
+}
+/* 选中态优先级最高：显式写在悬浮规则之后，hover 已选中项也完全保持主色 + 500 + ink */
+body .arco-tabs-tab-active,
+body .arco-tabs-tab-active:hover {
+  color: rgb(var(--primary-6));
+  font-weight: 500;
+}
 
 /* Filter controls use the white business surface in light mode; disabled states keep Arco's neutral fill.
    覆盖范围含日期区间选择器（.arco-picker），否则其默认 Fill-2 灰底不符合白表面规则。 */
@@ -411,9 +536,8 @@ body .arco-textarea-wrapper.arco-textarea-disabled {
 }
 .tc-drawer .arco-tabs-nav { margin-bottom: 0; }
 .tc-drawer .arco-tabs-content { display: none; }
-/* 筛选控件几何：控件统一 200px（DESIGN.md 筛选几何 [Project]） */
-.tc-drawer .tc-filter-control,
-.tc-drawer .tc-date-filter { width: 200px; }
+/* 抽屉筛选控件几何由上方 app-filter-unit 统一为 200px（DESIGN.md 筛选几何 [Project]），
+   此处不再重复声明宽度，避免与共享栅栏规则漂移。 */
 /* 表格（DESIGN.md · Table）：白底、无外框、无斑马纹、行间单线分隔；
    表头 14px/600/22 + #F6F7F9 语义填充，单元格 14px/400/22 + 12px 内边距。
    滚动分工：横向溢出由 Arco 的 .arco-table-content-scroll-x 承载（表格区内），
@@ -422,7 +546,7 @@ body .arco-textarea-wrapper.arco-textarea-disabled {
 .tc-drawer .arco-table-container { overflow: visible; }
 .tc-drawer .arco-table { border: 0; }
 .tc-drawer .arco-table-th {
-  height: 44px; padding: 0 12px;
+  height: 50px; padding: 0 12px;
   border-bottom: 1px solid var(--app-divider);
   color: var(--color-text-1);
   background: var(--app-table-header);
@@ -430,7 +554,7 @@ body .arco-textarea-wrapper.arco-textarea-disabled {
   white-space: nowrap; text-align: left;
 }
 .tc-drawer .arco-table-td {
-  height: 52px; padding: 8px 12px;
+  height: 50px; padding: 8px 12px;
   border-bottom: 1px solid var(--app-divider);
   background: var(--app-surface);
   font-size: 14px; line-height: 22px;
@@ -454,10 +578,7 @@ body .arco-textarea-wrapper.arco-textarea-disabled {
 }
 /* 抽屉关闭动画：方向沿用 Arco 的向右滑出，缓动改为线性（DESIGN.md · Dismissal and motion） */
 .tc-drawer .slide-right-drawer-leave-active { transition-timing-function: linear; }
-@media (max-width: 900px) {
-  .tc-drawer .tc-filter-control,
-  .tc-drawer .tc-date-filter { width: 100%; }
-}
+/* 抽屉筛选条窄屏流式布局同样交给 .app-filter-strip 的媒体查询，避免两套断点漂移 */
 
 /* ---------------------------------------------------------------- 审计详情抽屉 */
 /* 抽屉整体为 Fill-1 灰画布，头部/底部操作栏/内容分组卡片为白色表面；
@@ -484,7 +605,10 @@ body .arco-textarea-wrapper.arco-textarea-disabled {
 .app-detail-label { color: var(--color-text-2); line-height: 22px; }
 .app-detail-value { color: var(--color-text-1); line-height: 22px; overflow-wrap: anywhere; white-space: pre-line; }
 
-.default-layout-content { min-height: calc(100vh - 56px); }
+/* Pattern 1（顶部导航、无左侧栏）内容区：四边 16px 画布间距由 shell 的 padding 一次给出，
+   与 Pattern 2 的 ProductLayout 共用 --app-page-gutter；页面根节点不得再叠加外边距。
+   内容区内相邻模块之间的 12px 间距是另一条规则，由各页面根容器负责。 */
+.default-layout-content { min-height: calc(100dvh - 56px); padding: var(--app-page-gutter); }
 
 @media (min-width: 1400px) {
   .shell-leading { margin-right: 28px; }

@@ -104,6 +104,19 @@
         "pageSizes?"
       ],
       "usage": "Total, page size, previous/pages/next, jumper. Page size resets current."
+    },
+    {
+      "name": "AppStatusTag",
+      "file": "src/design/components/AppStatusTag.vue",
+      "modes": [
+        "list",
+        "detail"
+      ],
+      "props": [
+        "role?: neutral | info | success | warning | danger",
+        "label: string"
+      ],
+      "usage": "Platform-wide status tag. Design owns role-to-appearance via --app-status-* tokens; the domain owns code-to-role via src/shared/status.ts and the visible label."
     }
   ],
   "patterns": [

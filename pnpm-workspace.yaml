@@ -1,4 +1,9 @@
+# @vue-office/* 的 postinstall 只负责按 Vue 版本生成 lib/index.js；本项目在
+# vite.config.ts 中直接引用发布包自带的 Vue 3 ESM 构建，无需执行安装期脚本。
 allowBuilds:
+  '@vue-office/docx': false
+  '@vue-office/excel': false
+  '@vue-office/pdf': false
   es5-ext: true
   esbuild: true
   fsevents: true

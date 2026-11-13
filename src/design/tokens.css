@@ -7,6 +7,16 @@ body {
   --app-primary-strong: rgb(var(--primary-6));
   --app-warning-bg: #FFF4E6;
   --app-error-bg: #FFECE8;
+  --app-status-neutral-bg: #F2F3F5;
+  --app-status-neutral-fg: #333333;
+  --app-status-info-bg: #DFF7F9;
+  --app-status-info-fg: #0A6E7C;
+  --app-status-success-bg: #DCF5DE;
+  --app-status-success-fg: #006622;
+  --app-status-warning-bg: #FFF4E6;
+  --app-status-warning-fg: #A64000;
+  --app-status-danger-bg: #FFECE8;
+  --app-status-danger-fg: #B20006;
   --app-chart-accent: rgb(var(--primary-6));
   --chart-series-1: rgb(var(--primary-6));
   --chart-series-2: #0E7C8A;
@@ -55,6 +65,26 @@ body {
   --primary-8: 4, 117, 132;
   --primary-9: 2, 85, 100;
   --primary-10: 0, 57, 71;
+  --app-tag-color-blue: #1E3DF5;
+  --app-tag-color-green: #22A83C;
+  --app-tag-color-orange: #F85B1A;
+  --app-tag-color-red: #EC1240;
+  --app-tag-color-purple: #6D22E6;
+  --app-tag-color-teal: #22B2B5;
+  --app-tag-color-blue-fg: #1E3DF5;
+  --app-tag-color-green-fg: #14963A;
+  --app-tag-color-orange-fg: #D9530A;
+  --app-tag-color-red-fg: #D81038;
+  --app-tag-color-purple-fg: #5E1BD4;
+  --app-tag-color-teal-fg: #128E93;
+  --app-tag-color-blue-bg: #E8EFFF;
+  --app-tag-color-green-bg: #E6F7EA;
+  --app-tag-color-orange-bg: #FFF1E5;
+  --app-tag-color-red-bg: #FDE9ED;
+  --app-tag-color-purple-bg: #F1E8FF;
+  --app-tag-color-teal-bg: #E2F6F7;
+  --app-tag-selected-ring: #4C7DF5;
+  --app-tag-selected-halo: #E6EDFF;
 }
 
 body[arco-theme='dark'], html body[arco-theme='dark'] {
@@ -63,6 +93,16 @@ body[arco-theme='dark'], html body[arco-theme='dark'] {
   --app-primary-strong: rgb(var(--primary-6));
   --app-warning-bg: var(--color-warning-light-1);
   --app-error-bg: var(--color-danger-light-1);
+  --app-status-neutral-bg: #26282E;
+  --app-status-neutral-fg: #D4D6DB;
+  --app-status-info-bg: #123B41;
+  --app-status-info-fg: #2BD0DC;
+  --app-status-success-bg: #15291A;
+  --app-status-success-fg: #3FD15F;
+  --app-status-warning-bg: #2E2015;
+  --app-status-warning-fg: #FF9A4D;
+  --app-status-danger-bg: #2E1A18;
+  --app-status-danger-fg: #FF6A5E;
   --app-chart-accent: rgb(var(--primary-6));
   --chart-series-1: rgb(var(--primary-6));
   --chart-series-2: #1DE4F3;
@@ -86,4 +126,24 @@ body[arco-theme='dark'], html body[arco-theme='dark'] {
   --primary-8: 145, 235, 239;
   --primary-9: 194, 245, 247;
   --primary-10: 232, 250, 250;
+  --app-tag-color-blue: #3A58FF;
+  --app-tag-color-green: #35BE55;
+  --app-tag-color-orange: #FF7338;
+  --app-tag-color-red: #FF3D62;
+  --app-tag-color-purple: #8A45F2;
+  --app-tag-color-teal: #39C7CA;
+  --app-tag-color-blue-fg: #7C9BFF;
+  --app-tag-color-green-fg: #4FD374;
+  --app-tag-color-orange-fg: #FFA763;
+  --app-tag-color-red-fg: #FF6A80;
+  --app-tag-color-purple-fg: #A87CFF;
+  --app-tag-color-teal-fg: #4FD3D6;
+  --app-tag-color-blue-bg: #1B2745;
+  --app-tag-color-green-bg: #16301C;
+  --app-tag-color-orange-bg: #35220F;
+  --app-tag-color-red-bg: #33191E;
+  --app-tag-color-purple-bg: #281947;
+  --app-tag-color-teal-bg: #123438;
+  --app-tag-selected-ring: #7AA0FF;
+  --app-tag-selected-halo: #233257;
 }

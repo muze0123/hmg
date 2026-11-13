@@ -16,6 +16,6 @@ defineProps<{
 </template>
 
 <style scoped>
-.pending-module { padding: 16px; }
+.pending-module { min-height: calc(100dvh - 88px); }
 .pending-module :deep(.arco-empty) { padding: 96px 0; }
 </style>

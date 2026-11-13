@@ -65,20 +65,19 @@ const filteredNotices = computed(() =>
 
 <style scoped>
 .message-center {
-  min-height: calc(100dvh - 56px);
-  padding: 16px var(--app-page-gutter);
+  min-height: calc(100dvh - 88px);
+  padding: 0;
   background: var(--app-fill-1);
 }
 .message-content {
-  max-width: 1200px;
-  margin: auto;
+  min-width: 0;
 }
 .message-header {
   display: flex;
   align-items: end;
   justify-content: space-between;
   gap: var(--mt-ds-space-4);
-  margin-bottom: 16px;
+  margin-bottom: var(--mt-ds-space-3);
 }
 .message-header a {
   color: var(--app-accent);

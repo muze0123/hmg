@@ -18,10 +18,6 @@ Start with `AI-DESIGN.md` and `pnpm design:context list` (or `form`, `detail`, `
 - Keep app bootstrapping/routing/i18n in `src/app`, shell in `src/layouts`, design primitives in `src/design`, cross-domain utilities in `src/shared`.
 - Execute routine authorized work directly. Resolve missing business rules or destructive scope before dependent changes.
 
-## User-facing copy
-
-- Do not display implementation-stage notices about mock, sample, demo or simulated data/actions, local-only persistence, service integration or refresh resets in business pages, overlays, tooltips, notifications, previews or exports. Use concise business labels and feedback. Report actual data/API integration limitations in delivery notes and developer documentation.
-
 ## Implementation contracts
 
 - Use Vue 3 Composition API with `<script setup lang="ts">`, TypeScript, Vite, Vue Router, Pinia, Vue I18n and `@arco-design/web-vue`. Read resolved versions from package.json and lockfile.
@@ -33,7 +29,8 @@ Start with `AI-DESIGN.md` and `pnpm design:context list` (or `form`, `detail`, `
 - Every visible control performs its action. Implement relevant loading, error, empty, no-match, disabled and recovery states. Searches, pagination and sort affect displayed data.
 - Forms preserve values after failures, prevent duplicate submits and expose validation with first-error focus/scroll. Deliberately handle close, Escape, mask, focus return and dirty-state policies for each overlay.
 - Use shared ConfirmDialog for confirmations. The caller owns async completion, loading and visibility. Use the project's field-label component/helper and punctuation profile.
-- Use typed module mock data until an API contract exists. Mask sensitive identifiers. Keep implementation and integration status in delivery notes. Authentication stays in auth store/router guards.
+- Use typed module mock data until an API contract exists. Mask sensitive identifiers. Describe mock/API integration boundaries accurately in developer comments and delivery reports. Authentication stays in auth store/router guards.
+- Build business pages with production-facing product copy. Never display implementation notices such as “演示数据”, “本地模拟”, “mock”, “prototype”, “demo”, browser-session persistence, or simulated callbacks in page content, alerts, tooltips, empty states, dialogs, or success messages. Keep these facts in developer comments and delivery reports. User-visible feedback must describe the actual business action and result without claiming an unconfirmed server save.
 - Support live zh-CN/en-US switching through useLocaleStore. Static UI copy and enums need matching keys. Records store enum codes. Proper nouns and IDs render verbatim. Free-text overrides follow the detailed localization contract.
 - For enum label helpers write key prefixes inline so scripts/i18n.mjs can inspect them. Keep names outside translation dictionaries. Preserve all existing translation boundary rules in docs/FRONTEND-RULES.md.
 - Use semantic HTML, programmatic input names, icon-action accessible names, visible focus and keyboard operation. Pair status color with text. Respect reduced motion.

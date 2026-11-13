@@ -1,0 +1,585 @@
+{
+  "records": [
+    {
+      "id": "ITEM-01",
+      "project": "PROJ-0004",
+      "status": "pending",
+      "type": "technical",
+      "rows": 0,
+      "name": "OTA 升级安全评估",
+      "executor": "王建国",
+      "reviewer": "李四"
+    },
+    {
+      "id": "ITEM-02",
+      "project": "PROJ-0004",
+      "status": "pending",
+      "type": "test",
+      "rows": 0,
+      "name": "OTA 升级安全评估",
+      "executor": "王建国",
+      "reviewer": "李四"
+    },
+    {
+      "id": "ITEM-03",
+      "project": "PROJ-0009",
+      "status": "active",
+      "type": "technical",
+      "rows": 2,
+      "name": "三电系统分项任务",
+      "executor": "王建国",
+      "reviewer": "李四"
+    },
+    {
+      "id": "ITEM-04",
+      "project": "PROJ-0004",
+      "status": "active",
+      "type": "report",
+      "rows": 2,
+      "name": "OTA 升级安全评估",
+      "executor": "王建国",
+      "reviewer": "李四"
+    },
+    {
+      "id": "ITEM-05",
+      "project": "PROJ-0010",
+      "status": "submitting",
+      "type": "technical",
+      "rows": 2,
+      "name": "智能驾驶分项任务",
+      "executor": "王建国",
+      "reviewer": "李四"
+    },
+    {
+      "id": "ITEM-06",
+      "project": "PROJ-0010",
+      "status": "submitting",
+      "type": "test",
+      "rows": 2,
+      "name": "智能驾驶分项任务",
+      "executor": "王建国",
+      "reviewer": "李四"
+    },
+    {
+      "id": "ITEM-07",
+      "project": "PROJ-0010",
+      "status": "submitting",
+      "type": "certificate",
+      "rows": 2,
+      "name": "智能驾驶分项任务",
+      "executor": "王建国",
+      "reviewer": "李四"
+    },
+    {
+      "id": "ITEM-08",
+      "project": "PROJ-0010",
+      "status": "submitting",
+      "type": "report",
+      "rows": 2,
+      "name": "智能驾驶分项任务",
+      "executor": "王建国",
+      "reviewer": "李四"
+    },
+    {
+      "id": "ITEM-09",
+      "project": "PROJ-0015",
+      "status": "reviewing",
+      "type": "certificate",
+      "rows": 2,
+      "name": "车联网通信安全评估",
+      "executor": "王建国",
+      "reviewer": "李四"
+    },
+    {
+      "id": "ITEM-10",
+      "project": "PROJ-0016",
+      "status": "completed",
+      "type": "technical",
+      "rows": 2,
+      "name": "供应商数据合规审计",
+      "executor": "王建国",
+      "reviewer": "李四"
+    },
+    {
+      "id": "ITEM-11",
+      "project": "PROJ-0014",
+      "status": "withdrawn",
+      "type": "report",
+      "rows": 2,
+      "name": "云端服务数据合规",
+      "executor": "王建国",
+      "reviewer": "李四"
+    },
+    {
+      "id": "ITEM-12",
+      "project": "PROJ-0014",
+      "status": "rejected",
+      "type": "technical",
+      "rows": 2,
+      "name": "云端服务数据合规",
+      "executor": "王建国",
+      "reviewer": "李四"
+    },
+    {
+      "id": "ITEM-13",
+      "project": "PROJ-0003",
+      "status": "voided",
+      "type": "test",
+      "rows": 2,
+      "name": "车机系统隐私合规评估",
+      "executor": "王建国",
+      "reviewer": "李四"
+    },
+    {
+      "id": "ITEM-14",
+      "project": "PROJ-0003",
+      "status": "reviewing",
+      "type": "certificate",
+      "rows": 2,
+      "name": "车机系统隐私合规评估",
+      "executor": "张三",
+      "reviewer": "王建国"
+    },
+    {
+      "id": "ITEM-15",
+      "project": "PROJ-0003",
+      "status": "pending",
+      "type": "report",
+      "rows": 0,
+      "name": "车机系统隐私合规评估",
+      "executor": "王建国",
+      "reviewer": "李四"
+    }
+  ],
+  "results": [
+    {
+      "id": "ITEM-01",
+      "locale": "zh-CN",
+      "theme": "light",
+      "width": 1440,
+      "status": "passed"
+    },
+    {
+      "id": "ITEM-02",
+      "locale": "zh-CN",
+      "theme": "light",
+      "width": 1440,
+      "status": "passed"
+    },
+    {
+      "id": "ITEM-03",
+      "locale": "zh-CN",
+      "theme": "light",
+      "width": 1440,
+      "status": "passed"
+    },
+    {
+      "id": "ITEM-04",
+      "locale": "zh-CN",
+      "theme": "light",
+      "width": 1440,
+      "status": "passed"
+    },
+    {
+      "id": "ITEM-05",
+      "locale": "zh-CN",
+      "theme": "light",
+      "width": 1440,
+      "status": "passed"
+    },
+    {
+      "id": "ITEM-06",
+      "locale": "zh-CN",
+      "theme": "light",
+      "width": 1440,
+      "status": "passed"
+    },
+    {
+      "id": "ITEM-07",
+      "locale": "zh-CN",
+      "theme": "light",
+      "width": 1440,
+      "status": "passed"
+    },
+    {
+      "id": "ITEM-08",
+      "locale": "zh-CN",
+      "theme": "light",
+      "width": 1440,
+      "status": "passed"
+    },
+    {
+      "id": "ITEM-09",
+      "locale": "zh-CN",
+      "theme": "light",
+      "width": 1440,
+      "status": "passed"
+    },
+    {
+      "id": "ITEM-10",
+      "locale": "zh-CN",
+      "theme": "light",
+      "width": 1440,
+      "status": "passed"
+    },
+    {
+      "id": "ITEM-11",
+      "locale": "zh-CN",
+      "theme": "light",
+      "width": 1440,
+      "status": "passed"
+    },
+    {
+      "id": "ITEM-12",
+      "locale": "zh-CN",
+      "theme": "light",
+      "width": 1440,
+      "status": "passed"
+    },
+    {
+      "id": "ITEM-13",
+      "locale": "zh-CN",
+      "theme": "light",
+      "width": 1440,
+      "status": "passed"
+    },
+    {
+      "id": "ITEM-14",
+      "locale": "zh-CN",
+      "theme": "light",
+      "width": 1440,
+      "status": "passed"
+    },
+    {
+      "id": "ITEM-15",
+      "locale": "zh-CN",
+      "theme": "light",
+      "width": 1440,
+      "status": "passed"
+    },
+    {
+      "id": "ITEM-01",
+      "locale": "en-US",
+      "theme": "dark",
+      "width": 1440,
+      "status": "passed"
+    },
+    {
+      "id": "ITEM-02",
+      "locale": "en-US",
+      "theme": "dark",
+      "width": 1440,
+      "status": "passed"
+    },
+    {
+      "id": "ITEM-03",
+      "locale": "en-US",
+      "theme": "dark",
+      "width": 1440,
+      "status": "passed"
+    },
+    {
+      "id": "ITEM-04",
+      "locale": "en-US",
+      "theme": "dark",
+      "width": 1440,
+      "status": "passed"
+    },
+    {
+      "id": "ITEM-05",
+      "locale": "en-US",
+      "theme": "dark",
+      "width": 1440,
+      "status": "passed"
+    },
+    {
+      "id": "ITEM-06",
+      "locale": "en-US",
+      "theme": "dark",
+      "width": 1440,
+      "status": "passed"
+    },
+    {
+      "id": "ITEM-07",
+      "locale": "en-US",
+      "theme": "dark",
+      "width": 1440,
+      "status": "passed"
+    },
+    {
+      "id": "ITEM-08",
+      "locale": "en-US",
+      "theme": "dark",
+      "width": 1440,
+      "status": "passed"
+    },
+    {
+      "id": "ITEM-09",
+      "locale": "en-US",
+      "theme": "dark",
+      "width": 1440,
+      "status": "passed"
+    },
+    {
+      "id": "ITEM-10",
+      "locale": "en-US",
+      "theme": "dark",
+      "width": 1440,
+      "status": "passed"
+    },
+    {
+      "id": "ITEM-11",
+      "locale": "en-US",
+      "theme": "dark",
+      "width": 1440,
+      "status": "passed"
+    },
+    {
+      "id": "ITEM-12",
+      "locale": "en-US",
+      "theme": "dark",
+      "width": 1440,
+      "status": "passed"
+    },
+    {
+      "id": "ITEM-13",
+      "locale": "en-US",
+      "theme": "dark",
+      "width": 1440,
+      "status": "passed"
+    },
+    {
+      "id": "ITEM-14",
+      "locale": "en-US",
+      "theme": "dark",
+      "width": 1440,
+      "status": "passed"
+    },
+    {
+      "id": "ITEM-15",
+      "locale": "en-US",
+      "theme": "dark",
+      "width": 1440,
+      "status": "passed"
+    },
+    {
+      "id": "ITEM-01",
+      "locale": "zh-CN",
+      "theme": "dark",
+      "width": 375,
+      "status": "passed"
+    },
+    {
+      "id": "ITEM-02",
+      "locale": "zh-CN",
+      "theme": "dark",
+      "width": 375,
+      "status": "passed"
+    },
+    {
+      "id": "ITEM-03",
+      "locale": "zh-CN",
+      "theme": "dark",
+      "width": 375,
+      "status": "passed"
+    },
+    {
+      "id": "ITEM-04",
+      "locale": "zh-CN",
+      "theme": "dark",
+      "width": 375,
+      "status": "passed"
+    },
+    {
+      "id": "ITEM-05",
+      "locale": "zh-CN",
+      "theme": "dark",
+      "width": 375,
+      "status": "passed"
+    },
+    {
+      "id": "ITEM-06",
+      "locale": "zh-CN",
+      "theme": "dark",
+      "width": 375,
+      "status": "passed"
+    },
+    {
+      "id": "ITEM-07",
+      "locale": "zh-CN",
+      "theme": "dark",
+      "width": 375,
+      "status": "passed"
+    },
+    {
+      "id": "ITEM-08",
+      "locale": "zh-CN",
+      "theme": "dark",
+      "width": 375,
+      "status": "passed"
+    },
+    {
+      "id": "ITEM-09",
+      "locale": "zh-CN",
+      "theme": "dark",
+      "width": 375,
+      "status": "passed"
+    },
+    {
+      "id": "ITEM-10",
+      "locale": "zh-CN",
+      "theme": "dark",
+      "width": 375,
+      "status": "passed"
+    },
+    {
+      "id": "ITEM-11",
+      "locale": "zh-CN",
+      "theme": "dark",
+      "width": 375,
+      "status": "passed"
+    },
+    {
+      "id": "ITEM-12",
+      "locale": "zh-CN",
+      "theme": "dark",
+      "width": 375,
+      "status": "passed"
+    },
+    {
+      "id": "ITEM-13",
+      "locale": "zh-CN",
+      "theme": "dark",
+      "width": 375,
+      "status": "passed"
+    },
+    {
+      "id": "ITEM-14",
+      "locale": "zh-CN",
+      "theme": "dark",
+      "width": 375,
+      "status": "passed"
+    },
+    {
+      "id": "ITEM-15",
+      "locale": "zh-CN",
+      "theme": "dark",
+      "width": 375,
+      "status": "passed"
+    },
+    {
+      "id": "ITEM-01",
+      "locale": "en-US",
+      "theme": "light",
+      "width": 375,
+      "status": "passed"
+    },
+    {
+      "id": "ITEM-02",
+      "locale": "en-US",
+      "theme": "light",
+      "width": 375,
+      "status": "passed"
+    },
+    {
+      "id": "ITEM-03",
+      "locale": "en-US",
+      "theme": "light",
+      "width": 375,
+      "status": "passed"
+    },
+    {
+      "id": "ITEM-04",
+      "locale": "en-US",
+      "theme": "light",
+      "width": 375,
+      "status": "passed"
+    },
+    {
+      "id": "ITEM-05",
+      "locale": "en-US",
+      "theme": "light",
+      "width": 375,
+      "status": "passed"
+    },
+    {
+      "id": "ITEM-06",
+      "locale": "en-US",
+      "theme": "light",
+      "width": 375,
+      "status": "passed"
+    },
+    {
+      "id": "ITEM-07",
+      "locale": "en-US",
+      "theme": "light",
+      "width": 375,
+      "status": "passed"
+    },
+    {
+      "id": "ITEM-08",
+      "locale": "en-US",
+      "theme": "light",
+      "width": 375,
+      "status": "passed"
+    },
+    {
+      "id": "ITEM-09",
+      "locale": "en-US",
+      "theme": "light",
+      "width": 375,
+      "status": "passed"
+    },
+    {
+      "id": "ITEM-10",
+      "locale": "en-US",
+      "theme": "light",
+      "width": 375,
+      "status": "passed"
+    },
+    {
+      "id": "ITEM-11",
+      "locale": "en-US",
+      "theme": "light",
+      "width": 375,
+      "status": "passed"
+    },
+    {
+      "id": "ITEM-12",
+      "locale": "en-US",
+      "theme": "light",
+      "width": 375,
+      "status": "passed"
+    },
+    {
+      "id": "ITEM-13",
+      "locale": "en-US",
+      "theme": "light",
+      "width": 375,
+      "status": "passed"
+    },
+    {
+      "id": "ITEM-14",
+      "locale": "en-US",
+      "theme": "light",
+      "width": 375,
+      "status": "passed"
+    },
+    {
+      "id": "ITEM-15",
+      "locale": "en-US",
+      "theme": "light",
+      "width": 375,
+      "status": "passed"
+    }
+  ],
+  "errors": [],
+  "scope": "Front-end local fixtures; no backend or approval callback integration is established.",
+  "verification": {
+    "verify": "passed",
+    "build": "passed",
+    "design:audit": "passed",
+    "design:sync": "passed",
+    "design:browser": "failed: existing 1440-zh-CN-light visual baseline differs; baseline unchanged"
+  }
+}

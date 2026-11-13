@@ -1,16 +1,21 @@
 <script setup lang="ts">
-import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue';
+import ExecutionTaskList from "../../task-execution/components/ExecutionTaskList.vue";
+import { recordTaskEvent } from '../../projects/data/history';
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { onBeforeRouteLeave, onBeforeRouteUpdate, useRoute, useRouter } from 'vue-router';
 import { useI18n } from 'vue-i18n';
 import { Message, type TableColumnData } from '@arco-design/web-vue';
-import { IconMore } from '@arco-design/web-vue/es/icon';
+import { IconSearch, IconRefresh } from '@arco-design/web-vue/es/icon';
+import AppDetailList from '../../../design/components/AppDetailList.vue';
 import AppFormLayout from '../../../design/components/AppFormLayout.vue';
 import AppFieldLabel from '../../../design/components/AppFieldLabel.vue';
 import AppListToolbar from '../../../design/components/AppListToolbar.vue';
 import AppPagination from '../../../design/components/AppPagination.vue';
+import AppStatusTag from '../../../design/components/AppStatusTag.vue';
+import { statusRole } from '../../../shared/status';
 import ConfirmDialog from '../../../shared/components/ConfirmDialog.vue';
 import TestValueEditor from '../components/TestValueEditor.vue';
-import { cloneValues, emptyValue, itemValue, PRIORITY_CODES, STATUS_CODES, testTasks, validValue, type EntryValue, type TestItem, type TestTask } from '../data/testing';
+import { cloneValues, emptyValue, itemValue, testTasks, validValue, type EntryValue, type TestItem, type TestTask } from '../data/testing';
 import { useTestingLabels } from '../labels';
 
 const { t } = useI18n();
@@ -21,28 +26,9 @@ const root = ref<HTMLElement>();
 const current = computed(() => testTasks.find(task => task.id === route.params.id));
 const mode = computed(() => String(route.params.mode || 'view'));
 const validMode = computed(() => ['view', 'edit', 'review'].includes(mode.value));
-const canEdit = (task: TestTask) => task.vehicleReady && ['notStarted', 'inProgress', 'pending', 'rejected'].includes(task.status);
+const canEdit = (task: TestTask) => task.vehicleReady && ['pending', 'submitting', 'rejected', 'withdrawn'].includes(task.status);
 const editable = computed(() => Boolean(current.value && mode.value === 'edit' && canEdit(current.value)));
 const reviewing = computed(() => mode.value === 'review' && current.value?.status === 'reviewing');
-const filters = reactive({ project: '', name: '', regulation: '', priority: '', status: '', start: '', end: '', actual: '' });
-const applied = ref({ ...filters });
-const page = ref(1);
-const pageSize = ref(10);
-const filtered = computed(() => testTasks.filter(task => {
-  const query = applied.value;
-  return task.project.toLowerCase().includes(query.project.toLowerCase()) && task.name.toLowerCase().includes(query.name.toLowerCase())
-    && task.regulation.toLowerCase().includes(query.regulation.toLowerCase()) && (!query.priority || task.priority === query.priority)
-    && (!query.status || task.status === query.status) && (!query.start || task.start === query.start)
-    && (!query.end || task.end === query.end) && (!query.actual || task.actual === query.actual);
-}));
-const paged = computed(() => filtered.value.slice((page.value - 1) * pageSize.value, page.value * pageSize.value));
-const listKeys = ['regulation', 'project', 'name', 'priority', 'status', 'start', 'end', 'actual'] as const;
-const columns = computed<TableColumnData[]>(() => [
-  ...listKeys.map(key => ({ title: t(`testing.${key}`), dataIndex: key, slotName: key, width: key === 'regulation' ? 160 : 140 })),
-  { title: t('testing.actions'), slotName: 'actions', width: 190, fixed: 'right' },
-]);
-function search() { applied.value = { ...filters }; page.value = 1; }
-function reset() { Object.assign(filters, { project: '', name: '', regulation: '', priority: '', status: '', start: '', end: '', actual: '' }); search(); }
 function open(task: TestTask, action: string) { void router.push(`/tasks/testing/${task.id}/${action}`); }
 const values = ref<TestTask['values']>({});
 const baseline = ref('');
@@ -107,7 +93,7 @@ function hasValue(item: TestItem) {
   const value = readValue(item);
   return item.format === 'table' ? value.rows.some(row => row.parameter.trim() || row.result.trim()) : Boolean(value.text.trim());
 }
-function itemState(item: TestItem) { return hasValue(item) && validValue(item, readValue(item)) ? 'completed' : 'notStarted'; }
+function itemState(item: TestItem) { return hasValue(item) && validValue(item, readValue(item)) ? 'completed' : 'pending'; }
 const visibleItems = computed(() => (current.value?.items ?? []).filter(item =>
   `${item.id} ${itemLabel(item.name)}`.toLowerCase().includes(itemQuery.value.toLowerCase())
   && (!appliedItemStatus.value || itemState(item) === appliedItemStatus.value) && (!appliedItemTag.value || item.tag === appliedItemTag.value),
@@ -169,7 +155,9 @@ async function save(submit = false) {
     await Promise.resolve();
     current.value.values = cloneValues(values.value);
     baseline.value = JSON.stringify(values.value);
-    current.value.status = submit ? 'reviewing' : 'pending';
+    recordTaskEvent(current.value.project, 'testing', submit ? 'review' : 'draft', current.value.owner, '', current.value.id, submit ? current.value.reviewer : undefined);
+    current.value.status = submit ? 'reviewing' : 'submitting';
+  if (submit) { current.value.executedAt = new Date().toLocaleString('sv-SE', { timeZone: 'Asia/Shanghai' }); current.value.reviewedAt = ''; }
     confirmVisible.value = false;
     Message.success(t('testing.saved'));
     if (submit) { busy.value = false; await router.push('/tasks/testing'); }
@@ -192,8 +180,10 @@ async function review() {
   try {
     await Promise.resolve();
     const time = new Date().toLocaleString('sv-SE', { timeZone: 'Asia/Shanghai' });
+    recordTaskEvent(current.value.project, 'testing', conclusion.value === 'passed' ? 'approve' : 'reject', current.value.reviewer, opinion.value, current.value.id, conclusion.value === 'passed' ? undefined : current.value.owner);
     current.value.history.push({ id: `REVIEW-${Date.now()}`, reviewer: current.value.reviewer, result: conclusion.value === 'passed' ? 'passed' : 'rejected', opinion: opinion.value.trim(), time });
     current.value.status = conclusion.value === 'passed' ? 'completed' : 'rejected';
+    current.value.reviewedAt = time;
     current.value.actual = conclusion.value === 'passed' ? time.slice(0, 10) : '';
     opinion.value = ''; conclusion.value = ''; confirmVisible.value = false;
     Message.success(t('testing.saved'));
@@ -210,50 +200,12 @@ function confirm() {
   } else if (confirmAction.value === 'submit') void save(true);
   else void review();
 }
-function exportTask(task: TestTask) {
-  const cell = (value: string) => `"${(/^[=+\-@\t\r]/.test(value) ? "'" : '') + value.replaceAll('"', '""')}"`;
-  const rows = [[t('testing.regulation'), t('testing.project'), t('testing.model'), t('testing.number'), t('testing.item'), t('testing.format'), t('testing.value')]];
-  for (const model of task.models) for (const item of task.items) {
-    const value = itemValue(task, task.values, model, item);
-    rows.push([task.regulation, task.project, model, item.id, itemLabel(item.name), formatLabel(item.format), item.format === 'table' ? value.rows.map(row => `${row.parameter} = ${row.result}`).join('\n') : value.text]);
-  }
-  const url = URL.createObjectURL(new Blob(['\uFEFF' + rows.map(row => row.map(cell).join(',')).join('\r\n')], { type: 'text/csv;charset=utf-8' }));
-  const link = document.createElement('a'); link.href = url; link.download = `${task.id}.csv`; link.click();
-  setTimeout(() => URL.revokeObjectURL(url), 1000);
-}
 </script>
 
 <template>
   <main ref="root" class="testing-page">
     
-    <template v-if="!route.params.id">
-      <form class="filters surface" @submit.prevent="search">
-        <div v-for="key in (['project', 'name', 'regulation'] as const)" :key="key" class="filter-field">
-          <AppFieldLabel :text="t(`testing.${key}`)" as="label" :for="`test-filter-${key}`" context="filter" />
-          <a-input v-model="filters[key]" :input-attrs="{ id: `test-filter-${key}`, name: key }" allow-clear />
-        </div>
-        <div class="filter-field"><AppFieldLabel :text="t('testing.priority')" as="label" for="test-priority" context="filter" /><a-select v-model="filters.priority" :input-attrs="{ id: 'test-priority' }" :aria-label="t('testing.priority')" allow-clear><a-option v-for="code in PRIORITY_CODES" :key="code" :value="code">{{ priorityLabel(code) }}</a-option></a-select></div>
-        <div class="filter-field"><AppFieldLabel :text="t('testing.status')" as="label" for="test-status" context="filter" /><a-select v-model="filters.status" :input-attrs="{ id: 'test-status' }" :aria-label="t('testing.status')" allow-clear><a-option v-for="code in STATUS_CODES" :key="code" :value="code">{{ statusLabel(code) }}</a-option></a-select></div>
-        <div v-for="key in (['start', 'end', 'actual'] as const)" :key="key" class="filter-field"><AppFieldLabel :text="t(`testing.${key}`)" as="label" :for="`test-filter-${key}`" context="filter" /><a-date-picker v-model="filters[key]" :id="`test-filter-${key}`" :aria-label="t(`testing.${key}`)" /></div>
-        <a-space wrap><a-button html-type="submit" type="primary">{{ t('testing.search') }}</a-button><a-button @click="reset">{{ t('testing.reset') }}</a-button></a-space>
-      </form>
-      <section class="surface list-region" :aria-label="t('testing.title')">
-        <AppListToolbar :title="t('testing.records')" :summary="t('designSystem.total', { count: filtered.length })" />
-        <a-table :columns="columns" :data="paged" row-key="id" :pagination="false" :bordered="false" :scroll="{ x: 1330 }">
-          <template #regulation="{ record }"><a-button type="text" @click="open(record, 'view')">{{ record.regulation }}</a-button></template>
-          <template v-for="key in (['project', 'name', 'start', 'end', 'actual'] as const)" #[key]="{ record }">{{ record[key] || '—' }}</template>
-          <template #priority="{ record }">{{ priorityLabel(record.priority) }}</template>
-          <template #status="{ record }"><a-tag :color="record.status === 'completed' ? 'green' : record.status === 'rejected' ? 'red' : record.status === 'reviewing' ? 'orange' : undefined">{{ statusLabel(record.status) }}</a-tag></template>
-          <template #actions="{ record }"><div class="row-actions">
-            <a-button type="text" @click="open(record, 'view')">{{ t('testing.view') }}</a-button>
-            <a-tooltip :content="t(record.vehicleReady ? 'testing.editUnavailable' : 'testing.gate')" :disabled="canEdit(record)"><a-button type="text" :disabled="!canEdit(record)" @click="open(record, 'edit')">{{ t('testing.edit') }}</a-button></a-tooltip>
-            <a-dropdown trigger="click" position="br" content-class="row-more-dropdown"><a-button type="text" size="mini" :aria-label="t('testing.more')"><IconMore /></a-button><template #content><a-doption :disabled="record.status !== 'reviewing'" @click="open(record, 'review')">{{ t('testing.review') }}</a-doption><a-doption @click="exportTask(record)">{{ t('testing.export') }}</a-doption></template></a-dropdown>
-          </div></template>
-          <template #empty><a-empty :description="t('testing.empty')" /></template>
-        </a-table>
-        <AppPagination v-model:current="page" v-model:page-size="pageSize" :total="filtered.length" />
-      </section>
-    </template>
+    <ExecutionTaskList v-if="!route.params.id" module="testing" :rows="testTasks" />
     <template v-else-if="current && validMode">
       <div class="page-actions"><a-button :disabled="busy" @click="router.push('/tasks/testing')">{{ t('testing.back') }}</a-button><a-space v-if="editable" wrap><a-button :loading="busy" @click="save()">{{ t('testing.save') }}</a-button><a-button type="primary" :loading="busy" @click="requestSubmit">{{ t('testing.submit') }}</a-button></a-space></div>
       <a-alert v-if="mode === 'edit' && !editable" type="warning">{{ t(current.vehicleReady ? 'testing.editUnavailable' : 'testing.gate') }}</a-alert>
@@ -261,23 +213,23 @@ function exportTask(task: TestTask) {
       <a-alert v-if="error" type="error" role="alert">{{ error }}</a-alert>
       <section class="surface">
         <h2>{{ t('testing.base') }}</h2>
-        <dl class="details-grid"><div v-for="key in (['project', 'name', 'regulation', 'priority', 'status', 'start', 'end', 'actual', 'owner', 'reviewer', 'template', 'version'] as const)" :key="key"><dt><AppFieldLabel :text="t(`testing.${key}`)" context="detail" /></dt><dd>{{ key === 'status' ? statusLabel(current.status) : key === 'priority' ? priorityLabel(current.priority) : current[key] || '—' }}</dd></div></dl>
+        <AppDetailList :fields="(['project', 'name', 'regulation', 'priority', 'status', 'start', 'end', 'actual', 'owner', 'reviewer', 'template', 'version'] as const).map(key => ({ key, label: t(`testing.${key}`), value: key === 'status' ? statusLabel(current!.status) : key === 'priority' ? priorityLabel(current!.priority) : current![key] || '—' }))" />
       </section>
       <section class="surface">
         <h2>{{ t('testing.templateInfo') }}</h2>
         <div class="model-field"><AppFieldLabel :text="t('testing.model')" as="label" for="test-model" /><a-select v-model="activeModel" :input-attrs="{ id: 'test-model' }" :aria-label="t('testing.model')"><a-option v-for="model in current.models" :key="model" :value="model">{{ model }}</a-option></a-select></div>
         <a-tabs v-model:active-key="tab">
           <a-tab-pane key="individual" :title="t('testing.individual')">
-            <form class="item-filters" @submit.prevent="applyItemSearch">
-              <a-input v-model="itemSearch" :input-attrs="{ 'aria-label': t('testing.item') }" :placeholder="t('testing.item')" allow-clear />
-              <a-select v-model="itemStatus" :aria-label="t('testing.itemStatus')" :placeholder="t('testing.itemStatus')" allow-clear><a-option v-for="code in (['notStarted', 'completed'] as const)" :key="code" :value="code">{{ statusLabel(code) }}</a-option></a-select>
-              <a-select v-model="itemTag" :aria-label="t('testing.tag')" :placeholder="t('testing.tag')" allow-clear><a-option v-for="code in ['required', 'optional']" :key="code" :value="code">{{ tagLabel(code) }}</a-option></a-select>
-              <a-space><a-button html-type="submit" type="primary">{{ t('testing.search') }}</a-button><a-button @click="resetItemSearch">{{ t('testing.reset') }}</a-button></a-space>
+            <form class="item-filters app-filter-strip" @submit.prevent="applyItemSearch">
+              <div class="app-filter-unit"><AppFieldLabel as="label" for="item-search" :text="t('testing.item')" context="filter" /><a-input id="item-search" v-model="itemSearch" class="app-filter-control" :input-attrs="{ 'aria-label': t('testing.item') }" allow-clear /></div>
+              <div class="app-filter-unit"><AppFieldLabel as="label" for="item-status" :text="t('testing.itemStatus')" context="filter" /><a-select id="item-status" v-model="itemStatus" class="app-filter-control" :aria-label="t('testing.itemStatus')" allow-clear><a-option v-for="code in (['pending', 'completed'] as const)" :key="code" :value="code">{{ statusLabel(code) }}</a-option></a-select></div>
+              <div class="app-filter-unit"><AppFieldLabel as="label" for="item-tag" :text="t('testing.tag')" context="filter" /><a-select id="item-tag" v-model="itemTag" class="app-filter-control" :aria-label="t('testing.tag')" allow-clear><a-option v-for="code in ['required', 'optional']" :key="code" :value="code">{{ tagLabel(code) }}</a-option></a-select></div>
+              <div class="app-filter-actions"><a-button html-type="submit" type="primary"><template #icon><IconSearch /></template>{{ t('designSystem.search') }}</a-button><a-button class="app-btn-neutral" @click="resetItemSearch"><template #icon><IconRefresh /></template>{{ t('designSystem.reset') }}</a-button></div>
             </form>
             <a-table :columns="itemColumns" :data="pagedItems" row-key="id" :pagination="false" :bordered="false" :scroll="{ x: 810 }">
               <template #name="{ record }">{{ itemLabel(record.name) }}<p v-if="record.reference" class="reference-note">{{ t('testing.reference') }} {{ record.reference }}</p></template>
               <template #format="{ record }">{{ formatLabel(record.format) }}</template>
-              <template #status="{ record }"><a-tag>{{ statusLabel(itemState(record)) }}</a-tag></template>
+              <template #status="{ record }"><AppStatusTag :role="statusRole(itemState(record), 'testing')" :label="statusLabel(itemState(record))"/></template>
               <template #tag="{ record }">{{ tagLabel(record.tag) }}</template>
               <template #actions="{ record }"><a-button type="text" :data-item-id="record.id" :status="invalidItem === record.id ? 'danger' : undefined" @click="openDrawer(record)">{{ t(editable && !record.reference ? 'testing.fill' : 'testing.view') }}</a-button></template>
               <template #empty><a-empty :description="t('testing.emptyItems')" /></template>
@@ -286,7 +238,7 @@ function exportTask(task: TestTask) {
           </a-tab-pane>
           <a-tab-pane key="batch" :title="t('testing.batch')">
             <div class="batch-items"><section v-for="item in current.items" :key="item.id" class="batch-item">
-              <div class="item-heading"><AppFieldLabel :text="`${item.id} ${itemLabel(item.name)}`" /><a-tag>{{ formatLabel(item.format) }}</a-tag><span v-if="item.tag === 'required'" class="required-mark">*</span></div>
+              <div class="item-heading"><span v-if="editable && item.tag === 'required'" class="required-mark">*</span><AppFieldLabel :text="`${item.id} ${itemLabel(item.name)}`" /><a-tag>{{ formatLabel(item.format) }}</a-tag></div>
               <p v-if="item.reference" class="reference-note">{{ t('testing.referenceHint') }} {{ item.reference }}</p>
               <TestValueEditor :item="item" :model-value="readValue(item)" :readonly="!editable || Boolean(item.reference)" :label="itemLabel(item.name)" @update:model-value="updateValue(item, $event)" />
             </section></div>
@@ -308,7 +260,7 @@ function exportTask(task: TestTask) {
       </section>
     </template>
     <section v-else class="surface"><a-empty :description="t('testing.missing')" /><a-button @click="router.push('/tasks/testing')">{{ t('testing.back') }}</a-button></section>
-    <a-drawer :visible="drawerVisible" :width="'min(640px, 100vw)'" :title="drawerItem ? itemLabel(drawerItem.name) : ''" :mask-closable="false" :esc-to-close="!confirmVisible" unmount-on-close @cancel="closeDrawer" @open="focusDrawer" @close="drawerTrigger?.focus()">
+    <a-drawer :visible="drawerVisible" :width="'min(500px, 100vw)'" :title="drawerItem ? itemLabel(drawerItem.name) : ''" :mask-closable="false" :esc-to-close="!confirmVisible" unmount-on-close @cancel="closeDrawer" @open="focusDrawer" @close="drawerTrigger?.focus()">
       <div v-if="drawerItem" ref="drawerBody" class="drawer-content">
         <p>{{ drawerItem.id }} · {{ formatLabel(drawerItem.format) }}</p>
         <a-alert v-if="drawerItem.reference">{{ t('testing.referenceHint') }} {{ drawerItem.reference }}</a-alert>
@@ -322,14 +274,11 @@ function exportTask(task: TestTask) {
 </template>
 
 <style scoped>
-.testing-page { display: grid; gap: var(--mt-ds-space-4); min-width: 0; color: var(--mt-ds-text); }
+.testing-page { display: grid; gap: var(--mt-ds-space-3); min-width: 0; color: var(--mt-ds-text); }
 .surface { background: var(--mt-ds-surface); padding: var(--mt-ds-space-6); min-width: 0; }
-.session-note { margin: 0; color: var(--mt-ds-text-secondary); font-size: var(--mt-ds-font-caption); }
-.filters { display: flex; flex-wrap: wrap; align-items: center; gap: var(--mt-ds-space-4) var(--mt-ds-space-6); }
-.filter-field { display: grid; grid-template-columns: auto var(--mt-ds-filter-width); align-items: center; gap: var(--mt-ds-space-2); }
-.filter-field :deep(.mt-field-label) { text-align: right; }
-.filter-field :deep(.arco-picker) { width: 100%; }
+/* 列表与逐项填写的筛选区布局统一走 global.css 的 app-filter-strip / app-filter-unit / app-filter-actions */
 .row-actions { display: flex; align-items: center; gap: var(--mt-ds-space-3); }
+.row-actions :deep(.arco-btn-mini) { width: var(--mt-ds-space-6); height: var(--mt-ds-space-6); }
 .row-actions :deep(.arco-btn) { padding: 0; font-weight: var(--mt-ds-weight-body); }
 .testing-page :deep(.arco-table-th) { background: var(--mt-ds-surface); }
 .list-region :deep(th), .list-region :deep(td), .testing-page :deep(.arco-tag), .testing-page :deep(.arco-table-th) { font-weight: var(--mt-ds-weight-body); }
@@ -337,14 +286,13 @@ function exportTask(task: TestTask) {
 h2 { margin: 0 0 var(--mt-ds-space-4); font-size: var(--mt-ds-font-title); line-height: var(--mt-ds-line-title); font-weight: var(--mt-ds-weight-title); }
 .details-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--mt-ds-space-4) var(--mt-ds-space-6); margin: 0; }
 .details-grid > div { min-width: 0; }
-dt { margin-bottom: var(--mt-ds-space-1); } dd { margin: 0; overflow-wrap: anywhere; }
+
 .model-field { display: flex; align-items: center; gap: var(--mt-ds-space-2); margin-bottom: var(--mt-ds-space-4); }
 .model-field :deep(.arco-select) { width: var(--mt-ds-filter-width); }
-.item-filters { display: flex; flex-wrap: wrap; gap: var(--mt-ds-space-3); margin-bottom: var(--mt-ds-space-4); }
-.item-filters > :deep(.arco-input-wrapper), .item-filters > :deep(.arco-select) { width: var(--mt-ds-filter-width); }
+.item-filters { margin-bottom: var(--mt-ds-space-4); }
 .reference-note, .time-zone { font-size: var(--mt-ds-font-caption); font-weight: var(--mt-ds-weight-body); color: var(--mt-ds-text-secondary); }
 .reference-note { margin: var(--mt-ds-space-1) 0 0; }
-.batch-items { display: grid; gap: var(--mt-ds-space-6); }
+.batch-items { display: grid; gap: var(--mt-ds-space-4); }
 .batch-item { display: grid; gap: var(--mt-ds-space-3); width: var(--mt-ds-form-width); max-width: 100%; }
 .item-heading { display: flex; align-items: center; flex-wrap: wrap; gap: var(--mt-ds-space-2); }
 .required-mark, .field-error { color: rgb(var(--danger-6)); }
@@ -356,15 +304,14 @@ dt { margin-bottom: var(--mt-ds-space-1); } dd { margin: 0; overflow-wrap: anywh
 @media (max-width: 900px) { .details-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 @media (max-width: 600px) {
   .surface { padding: var(--mt-ds-space-4); }
-  .filters, .filter-field { display: grid; grid-template-columns: minmax(0, 1fr); width: 100%; }
-  .filter-field :deep(.mt-field-label) { text-align: left; }
   .details-grid { grid-template-columns: minmax(0, 1fr); }
-  .item-filters > :deep(.arco-input-wrapper), .item-filters > :deep(.arco-select) { width: 100%; }
+  /* 筛选区窄屏流式布局由 global.css 的 .app-filter-strip 媒体查询统一处理 */
 }
 
 :deep(.arco-table-th) { background: var(--app-surface); font-weight: var(--mt-ds-weight-body); }
 :deep(.arco-table-container) { border: 0; }
 :deep(.arco-table-td) { border-bottom: 1px solid var(--app-divider); }
+:deep(.arco-table-th), :deep(.arco-table-td), :deep(th), :deep(td) { height: 50px; }
 :deep(.arco-form-item-label) { font-weight: var(--mt-ds-weight-body); }
 h2 { font-size: var(--mt-ds-font-title); line-height: var(--mt-ds-line-title); font-weight: var(--mt-ds-weight-title); }
 </style>

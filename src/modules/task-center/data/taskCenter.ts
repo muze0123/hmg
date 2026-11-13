@@ -1,8 +1,8 @@
 /**
  * 导入导出面板（异步导入 / 下载任务列表）数据层。
  *
- * 平台初始框架口径：模块枚举只覆盖仍在平台内的能力（账号、授权、审计、消息、系统），
- * 不再引用已下线的业务模块。导入任务：processing / success / partial_fail / fail；
+ * 平台初始框架口径：模块枚举覆盖平台能力（账号、授权、审计、消息、系统）与已接入
+ * 下载任务的业务模块（分项管理）。导入任务：processing / success / partial_fail / fail；
  * 下载任务：processing / success / fail（+ expired 演示 30 天保留期）。
  *
  * 模块名走 i18n（taskCenter.modules.*），时间戳为数据层原文，
@@ -11,7 +11,7 @@
 
 export type TaskKind = 'import' | 'download';
 
-export type TaskModuleKey = 'account' | 'grant' | 'audit' | 'message' | 'system';
+export type TaskModuleKey = 'account' | 'grant' | 'audit' | 'message' | 'system' | 'sections' | 'vehicle' | 'testing' | 'reports' | 'certificates' | 'technical' | 'templates' | 'archive';
 
 export type ImportTaskStatus = 'processing' | 'success' | 'partial_fail' | 'fail';
 
@@ -51,7 +51,7 @@ export interface DownloadTaskRecord {
   fileName?: string;
 }
 
-export const TASK_MODULE_KEYS: TaskModuleKey[] = ['account', 'grant', 'audit', 'message', 'system'];
+export const TASK_MODULE_KEYS: TaskModuleKey[] = ['account', 'grant', 'audit', 'message', 'system', 'sections', 'vehicle', 'testing', 'reports', 'certificates', 'technical', 'templates', 'archive'];
 
 export function createImportTaskRecords(): ImportTaskRecord[] {
   return [

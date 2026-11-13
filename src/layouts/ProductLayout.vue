@@ -262,6 +262,7 @@ function toggleSidebar() {
               v-else
               :to="item.path"
               class="product-menu-link"
+              :class="{ 'is-active': isChildActive(item) }"
               active-class="is-active"
               :aria-label="sidebarCollapsed ? t(item.labelKey) : undefined"
               :title="t(item.labelKey)"
@@ -303,8 +304,11 @@ function toggleSidebar() {
 .product-tools { display: inline-flex; align-items: center; gap: 10px; }
 .product-account :deep(.arco-avatar) { flex: none; background: var(--color-fill-2); }
 .product-account :deep(.arco-avatar img) { display: block; width: 100%; height: 100%; object-fit: cover; }
-/* 固定侧栏不参与文档流，内容区自行保留 16px 画布间距。 */
-.product-body { display: flex; align-items: flex-start; min-height: calc(100vh - 56px); padding: 0 16px 0 0; }
+/* 内容区四边 16px 画布间距（DESIGN.md · Spacing & Layout，2026-11-12 全站统一）：
+   固定侧栏不参与文档流；右缘由 .product-body 右 padding 给出，顶部、底部、
+   以及与侧栏之间由 .product-main 给出。四边共用 --app-page-gutter，
+   页面根节点不得再叠加自己的 16px 外边距。 */
+.product-body { display: flex; align-items: flex-start; min-height: calc(100vh - 56px); padding: 0 var(--app-page-gutter) 0 0; }
 .product-sidebar { position: fixed; top: 56px; bottom: 0; left: 0; z-index: 10; display: flex; flex-direction: column; width: 205px; height: calc(100dvh - 56px); padding: 16px 8px 0; background: var(--app-surface); transition: width 200ms ease; }
 .product-sidebar.is-collapsed { width: 64px; }
 .product-sidebar > nav { flex: 1; min-height: 0; overflow-y: auto; }
@@ -328,14 +332,16 @@ function toggleSidebar() {
 .product-sidebar.is-collapsed .product-menu-label, .product-sidebar.is-collapsed .product-toggle-label { display: none; }
 .product-sidebar-toggle { display: flex; flex: none; align-items: center; width: 100%; height: 44px; gap: 10px; padding: 0 12px; border: 0; border-top: 1px solid var(--app-divider); background: transparent; color: var(--color-text-2); font: inherit; font-size: 14px; text-align: left; cursor: pointer; }
 .product-sidebar.is-collapsed .product-sidebar-toggle { justify-content: center; padding: 0; }
-/* 内容区与侧栏保持 16px 间距，侧栏收起时跟随让出宽度。 */
-.product-main { flex: 1; min-width: 0; margin-left: 221px; padding-top: 16px; margin-bottom: 16px; }
-.product-sidebar.is-collapsed + .product-main { margin-left: 80px; }
+/* 内容区与侧栏保持 16px 间距，侧栏收起时跟随让出宽度：205/64px 是侧栏自身宽度，
+   额外加上的 --app-page-gutter 才是画布间距；顶部 padding 与底部 margin 同为 16px。 */
+.product-main { flex: 1; min-width: 0; margin-left: calc(205px + var(--app-page-gutter)); padding-top: var(--app-page-gutter); margin-bottom: var(--app-page-gutter); min-height: calc(100dvh - 56px - var(--app-page-gutter)); }
+.product-sidebar.is-collapsed + .product-main { margin-left: calc(64px + var(--app-page-gutter)); }
 @media (max-width: 900px) {
-  /* 窄屏改为文档流中的横向菜单，正文不再预留左侧宽度。 */
-  .product-body { flex-direction: column; align-items: stretch; gap: 0; padding: 16px; }
-  .product-main, .product-sidebar.is-collapsed + .product-main { margin-left: 0; margin-bottom: 0; padding-top: 16px; }
-  .product-sidebar, .product-sidebar.is-collapsed { position: static; z-index: auto; flex: none; width: 100%; height: auto; margin-bottom: 16px; padding: 8px 16px; border-bottom: 1px solid var(--app-divider); }
+  /* 窄屏改为文档流中的横向菜单，正文不再预留左侧宽度；四边 16px 由 .product-body 承担，
+     横向菜单与内容区之间同样保持 16px。 */
+  .product-body { flex-direction: column; align-items: stretch; gap: 0; padding: var(--app-page-gutter); }
+  .product-main, .product-sidebar.is-collapsed + .product-main { margin-left: 0; margin-bottom: 0; padding-top: 0; min-height: 0; }
+  .product-sidebar, .product-sidebar.is-collapsed { position: static; z-index: auto; flex: none; width: 100%; height: auto; margin-bottom: var(--app-page-gutter); padding: 8px 16px; border-bottom: 1px solid var(--app-divider); }
   .product-sidebar > nav { display: flex; gap: 8px; overflow-x: auto; }
   .product-sidebar > nav > .product-menu-link, .product-sidebar > nav > .product-menu-group { flex: 0 0 auto; width: auto; white-space: nowrap; }
   .product-menu-group { display: flex; flex-direction: column; align-items: flex-start; gap: 0; }

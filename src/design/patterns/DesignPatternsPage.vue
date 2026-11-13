@@ -76,11 +76,15 @@ async function save() {
         <a-radio v-for="code in ['ready', 'empty', 'loading', 'error']" :key="code" :value="code">{{ t(`designSystem.states.${code}`) }}</a-radio>
       </a-radio-group>
     </div>
-    <form class="mt-patterns__surface mt-patterns__filter" @submit.prevent="page = 1">
-      <AppFieldLabel as="label" for="ds-keyword" :text="t('designSystem.keyword')" context="filter" />
-      <a-input :input-attrs="{ id: 'ds-keyword', 'aria-label': t('designSystem.keyword') }" v-model="keyword" allow-clear @input="page = 1" />
-      <a-button html-type="submit" type="primary">{{ t('designSystem.search') }}</a-button>
-      <a-button @click="keyword = ''; page = 1">{{ t('designSystem.reset') }}</a-button>
+    <form class="mt-patterns__surface mt-patterns__filter app-filter-strip" @submit.prevent="page = 1">
+      <div class="app-filter-unit">
+        <AppFieldLabel as="label" for="ds-keyword" :text="t('designSystem.keyword')" context="filter" />
+        <a-input class="app-filter-control" :input-attrs="{ id: 'ds-keyword', 'aria-label': t('designSystem.keyword') }" v-model="keyword" allow-clear @input="page = 1" />
+      </div>
+      <div class="app-filter-actions">
+        <a-button html-type="submit" type="primary">{{ t('designSystem.search') }}</a-button>
+        <a-button class="app-btn-neutral" @click="keyword = ''; page = 1">{{ t('designSystem.reset') }}</a-button>
+      </div>
     </form>
     <section class="mt-patterns__surface" :aria-label="t('designSystem.list')">
       <AppListToolbar :title="t('designSystem.list')" :summary="t('designSystem.total', { count: filtered.length })">
@@ -121,9 +125,9 @@ async function save() {
 </template>
 
 <style scoped>
-.mt-patterns { display: flex; flex-direction: column; gap: var(--mt-ds-space-4); min-width: 0; }
+.mt-patterns { display: flex; flex-direction: column; gap: var(--mt-ds-space-3); min-width: 0; }
 .mt-patterns__surface { padding: var(--mt-ds-space-4); background: var(--mt-ds-surface); border-radius: var(--mt-ds-control-radius); min-width: 0; }
-.mt-patterns__controls, .mt-patterns__filter { display: flex; flex-wrap: wrap; align-items: center; gap: var(--mt-ds-space-2); }
-.mt-patterns__filter :deep(.arco-input-wrapper) { width: var(--mt-ds-filter-width); max-width: 100%; }
-.mt-patterns :deep(.arco-table-th), .mt-patterns :deep(.arco-table-td) { font-weight: var(--mt-ds-weight-body); }
+.mt-patterns__controls { display: flex; flex-wrap: wrap; align-items: center; gap: var(--mt-ds-space-2); }
+/* 筛选区布局统一走 global.css 的 app-filter-strip / app-filter-unit / app-filter-actions */
+.mt-patterns :deep(.arco-table-th), .mt-patterns :deep(.arco-table-td) { height: 50px; font-weight: var(--mt-ds-weight-body); }
 </style>

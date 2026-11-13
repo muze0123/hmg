@@ -2,7 +2,7 @@
   "project": "HMG",
   "brand": "teal",
   "editableLabelColon": false,
-  "filterLabelColon": false,
+  "filterLabelColon": true,
   "detailLabelColon": false,
   "source": "DESIGN.md",
   "sourceStatus": "existing-approved-project-specification",
