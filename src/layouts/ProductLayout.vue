@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
+import { navigateWithinSamePage } from '../shared/composables/samePageNavigation';
 import { useRoute } from 'vue-router';
 import { useI18n } from 'vue-i18n';
 import {
@@ -249,6 +250,7 @@ function toggleSidebar() {
                     v-for="child in item.children"
                     :key="child.name"
                     :to="child.path"
+                    @click="route.fullPath === child.path && navigateWithinSamePage()"
                     class="product-menu-link product-menu-child"
                     :class="{ 'is-active': isChildActive(child) }"
                     active-class="is-active"
@@ -261,6 +263,7 @@ function toggleSidebar() {
             <router-link
               v-else
               :to="item.path"
+              @click="route.fullPath === item.path && navigateWithinSamePage()"
               class="product-menu-link"
               :class="{ 'is-active': isChildActive(item) }"
               active-class="is-active"

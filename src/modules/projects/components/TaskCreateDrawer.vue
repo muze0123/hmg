@@ -8,6 +8,8 @@
  * copySource（复制）/ editSource（编辑）二选一；都不传则为纯新建。
  */
 import { computed, reactive, ref, watch } from 'vue';
+import { onBeforeRouteLeave, onBeforeRouteUpdate } from 'vue-router';
+import ConfirmDialog from '../../../shared/components/ConfirmDialog.vue';
 import { Message, type FileItem } from '@arco-design/web-vue';
 import { IconEdit } from '@arco-design/web-vue/es/icon';
 import { useI18n } from 'vue-i18n';
@@ -150,10 +152,24 @@ async function confirmSave() {
   }
 }
 
-function cancelSave() {
-  if (saving.value) return;
-  if (dirty.value && !window.confirm(t('projects.taskCreate.unsaved'))) return;
-  visible.value = false;
+const leaveVisible = ref(false);
+let resolveLeave: ((allow: boolean) => void) | undefined;
+function requestLeave() {
+  if (!visible.value || !dirty.value) return Promise.resolve(true);
+  if (saving.value) return Promise.resolve(false);
+  leaveVisible.value = true;
+  return new Promise<boolean>(resolve => { resolveLeave = resolve; });
+}
+function finishLeave(allow: boolean) {
+  const resolve = resolveLeave;
+  resolveLeave = undefined;
+  leaveVisible.value = false;
+  resolve?.(allow);
+}
+onBeforeRouteLeave(requestLeave);
+onBeforeRouteUpdate(requestLeave);
+async function cancelSave() {
+  if (!saving.value && await requestLeave()) visible.value = false;
 }
 </script>
 
@@ -285,6 +301,7 @@ function cancelSave() {
       </div>
     </template>
   </a-drawer>
+  <ConfirmDialog unsaved :visible="leaveVisible" :title="t('projects.taskCreate.unsaved')" @update:visible="!$event && finishLeave(false)" @confirm="finishLeave(true)" />
 </template>
 
 <style scoped>

@@ -105,12 +105,11 @@ function onCancel() {
       <a-button v-if="dismissible" type="text" class="mt-confirm-close" :aria-label="t('designSystem.close')" @click="close"><IconClose /></a-button>
     </template>
     <div class="app-confirm-main">
-      <component
+      <span class="app-confirm-icon-slot" aria-hidden="true"><component
         :is="iconComponent"
-        :size="20"
         class="app-confirm-icon"
         :class="`app-confirm-icon-${icon}`"
-      />
+      /></span>
       <div class="app-confirm-copy">
         <p :id="titleId" class="app-confirm-title">{{ unsaved ? t('designSystem.unsaved') : title }}</p>
         <p v-for="(line, index) in descriptionLines" :key="index" class="app-confirm-desc">{{ line }}</p>
@@ -133,8 +132,9 @@ function onCancel() {
 
 <style scoped>
 /* The shell styles below follow the teleported Arco container. */
-.app-confirm-main { display: flex; align-items: center; gap: var(--mt-ds-space-6); width: 100%; min-width: 0; }
-.app-confirm-icon { flex: none; color: var(--app-confirm-icon); }
+.app-confirm-main { display: flex; align-items: flex-start; gap: var(--mt-ds-space-6); width: 100%; min-width: 0; }
+.app-confirm-icon-slot { display:flex; align-items:center; justify-content:center; flex:none; width:var(--mt-ds-confirm-icon); height:var(--mt-ds-line-title); }
+.app-confirm-icon { font-size:var(--mt-ds-confirm-icon); flex: none; color: var(--app-confirm-icon); }
 .app-confirm-icon-success { color: rgb(var(--success-6)); }
 .app-confirm-icon-danger { color: rgb(var(--danger-6)); }
 .app-confirm-copy { min-width: 0; }

@@ -372,4 +372,46 @@ seeds[7]!.handledBy = [MOCK_CURRENT_USER.name];
 seeds[15]!.handledBy = [MOCK_CURRENT_USER.name];
 seeds[2]!.ccUsers = [MOCK_CURRENT_USER.name];
 seeds[8]!.ccUsers = [MOCK_CURRENT_USER.name];
+// Linked vehicle execution scenarios cover drafts, withdrawals, cancellation and reviewer access.
+const vehicleScenarios = [
+  { name: 'M2 车型基础参数核对', status: 'pending' },
+  { name: 'M3 车型配置资料填写', status: 'submitting' },
+  { name: 'M4 车型配置补充核对', status: 'withdrawn' },
+  { name: 'M5 车型配置变更终止', status: 'voided' },
+  { name: 'M1 车型配置参数审批', status: 'reviewing' },
+] as const;
+for (const [index, scenario] of vehicleScenarios.entries()) {
+  const task = build(19 + index, { name: scenario.name, status: 'active', owner: MOCK_CURRENT_USER.name,
+    brand: index === 2 || index === 3 ? '品牌2' : '品牌1', series: index === 1 ? 'S2' : index === 2 || index === 3 ? 'S3' : 'S1', model: ['M2', 'M3', 'M4', 'M5', 'M1'][index]!, priority: 'medium',
+    subTasks: [{ code: 'vehicle', status: scenario.status, target: '2026-12-30', template: 'TPL-1-3',
+      executor: scenario.status === 'reviewing' ? people[0]! : MOCK_CURRENT_USER.name,
+      reviewer: scenario.status === 'reviewing' ? MOCK_CURRENT_USER.name : people[1]! }],
+  });
+  const add = (action: TaskHistoryEvent['action'], day: string, actor: string, taskCodes: string[]) => {
+    task.history!.push({ id: `${task.id}-${action}-${task.history!.length}`, action, actor, time: `2026-11-${day} 09:00:00`, taskCodes, taskName: task.name });
+  };
+  task.history = [];
+  add('create', '01', task.creator, []);
+  add('review', '02', task.creator, []);
+  add('approve', '03', people[1]!, []);
+  add('execute', '04', task.owner, []);
+  add('create', '04', task.owner, ['vehicle']);
+  if (scenario.status !== 'pending') add('draft', '05', task.subTasks[0]!.executor, ['vehicle']);
+  if (scenario.status === 'withdrawn' || scenario.status === 'reviewing') add('review', '06', task.subTasks[0]!.executor, ['vehicle']);
+  if (scenario.status === 'withdrawn') add('withdraw', '07', task.subTasks[0]!.executor, ['vehicle']);
+  if (scenario.status === 'voided') add('void', '07', task.owner, ['vehicle']);
+  task.updatedAt = task.history[task.history.length - 1]!.time;
+  seeds.push(task);
+}
+
+// Vehicle fixtures reference the actual completed templates used by the execution workflow.
+for (const task of seeds) {
+  const child = task.subTasks.find(child => child.code === 'vehicle');
+  if (!child) continue;
+  child.template = task.brand === '品牌2' ? 'TPL-1-7' : 'TPL-1-3';
+  task.brand ||= '品牌1'; task.series ||= 'S1'; task.model ||= 'M1';
+  for (const event of task.history || []) {
+    for (const config of event.taskConfigs || []) if (config.code === 'vehicle') config.template = child.template;
+  }
+}
 export const projects = ref<Project[]>(seeds);

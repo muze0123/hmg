@@ -248,10 +248,10 @@ async function download(row: Deliverable) {
 .project-item:hover { background: var(--color-fill-2); }
 .project-item.active { background: var(--color-primary-light-1); border-left-color: var(--app-accent); color: var(--app-accent); }
 .project-item:focus-visible { outline: 2px solid var(--app-accent); outline-offset: -2px; }
-/* 右侧面板在固定高度内纵向排布：工具栏 / 筛选 / 列表工具 / 分页固定，只有表格区滚动。 */
+/* 右侧面板在固定高度内纵向排布：工具栏 / 筛选 / 列表工具 / 分页固定，表格按内容高度排布，空间不足时滚动。 */
 .archive-content { display: flex; flex-direction: column; padding: var(--mt-ds-space-4); overflow: hidden; }
 .archive-content > * { flex: none; }
-.archive-content > .table-region { flex: 1 1 auto; min-height: 0; overflow: auto; }
+.archive-content > .table-region { flex: 0 1 auto; min-height: 0; overflow: auto; }
 
 /* 筛选区布局统一走 global.css 的 app-filter-strip / app-filter-unit / app-filter-actions */
 .list-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin: var(--mt-ds-space-2) 0 var(--mt-ds-space-4); }

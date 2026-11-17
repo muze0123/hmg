@@ -22,33 +22,8 @@ const { t, locale } = useI18n();
 
 /* ---------------------------------------------- 标签颜色：唯一枚举源
    色值只在 src/design/tokens.project.json 定义（亮/暗各一套），页面只引用语义变量。 */
-const COLOR_CODES = ['blue', 'green', 'orange', 'red', 'purple', 'teal'] as const;
-type ColorCode = (typeof COLOR_CODES)[number];
+import { COLOR_CODES, type ColorCode, type Tag, tagRecords as rows } from '../data/tags';
 const DEFAULT_COLOR: ColorCode = 'blue';
-
-interface Tag {
-  id: string;
-  name: string;
-  description: string;
-  color: ColorCode;
-  creator: string;
-  date: string;
-}
-
-const TAG_NAMES = [
-  '数据合规', '高风险项', '需复核', '已归档', '跨境传输', '敏感个人信息',
-  '车联网数据', '型式试验', '法规变更', '内部评审', '待补充材料', '软件升级',
-  '外部审核', '整改跟踪', '试验记录', '证书有效', '临时标签',
-];
-const PEOPLE = ['王建国', '李思远', '张明'];
-const rows = ref<Tag[]>(TAG_NAMES.map((name, index) => ({
-  id: `TAG-${String(index + 1).padStart(4, '0')}`,
-  name,
-  description: index % 3 === 0 ? `${name}相关的项目与任务标记，用于筛选与归档。` : index % 3 === 1 ? '' : `${name}专用标记`,
-  color: COLOR_CODES[index % COLOR_CODES.length],
-  creator: PEOPLE[index % PEOPLE.length],
-  date: `2026-${String((index % 10) + 1).padStart(2, '0')}-${String(((index * 3) % 27) + 1).padStart(2, '0')}`,
-})));
 const creatorOptions = computed(() => [...new Set(rows.value.map(row => row.creator))]);
 
 /* ---------------------------------------------- 业务字段全集：筛选、表格、列设置共用 */
@@ -206,8 +181,8 @@ function handleDialogOk() {
   save();
 }
 
-/* ---------------------------------------------- 删除：第三个直显操作 + 二次确认
-   本页三个行操作全部直显、不渲染「…」溢出按钮（2026-11-13 用户裁决，本页不采用 Row action overflow）。 */
+/* ---------------------------------------------- 删除：直显操作 + 二次确认
+   本页行操作全部直显、不渲染「…」溢出按钮（2026-11-13 用户裁决，本页不采用 Row action overflow）。 */
 const deleteOpen = ref(false);
 const deleteId = ref('');
 function requestDelete(row: Tag) {
@@ -320,7 +295,6 @@ function confirmDelete() {
         </template>
         <template #actions="{ record }">
           <div class="row-actions">
-            <button type="button" class="row-action" @click="openDialog('view', record as Tag)">{{ t('tags.detail') }}</button>
             <button type="button" class="row-action" @click="openDialog('edit', record as Tag)">{{ t('designSystem.edit') }}</button>
             <button type="button" class="row-action row-action--danger" @click="requestDelete(record as Tag)">{{ t('tags.delete') }}</button>
           </div>
@@ -435,7 +409,7 @@ function confirmDelete() {
 }
 .tags-page :deep(.arco-table-tr:hover .arco-table-td) { background: var(--color-fill-1); }
 
-/* 行操作：详情 / 编辑 / 删除三个文字链接全部直显，删除用 danger 语义色 */
+/* 行操作：编辑 / 删除两个文字链接全部直显，删除用 danger 语义色 */
 .row-actions { display: flex; align-items: center; gap: var(--mt-ds-space-3); }
 .row-action { padding: 0; border: 0; background: transparent; color: var(--app-color-primary); font: inherit; font-weight: 400; cursor: pointer; }
 .row-action:hover { text-decoration: underline; }

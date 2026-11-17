@@ -1,93 +1,128 @@
 <script setup lang="ts">
-import { recordTaskEvent } from '../../projects/data/history';
-import ExecutionTaskList from '../../task-execution/components/ExecutionTaskList.vue';
-import ConfirmDialog from '../../../shared/components/ConfirmDialog.vue';
-import { watch, computed, reactive, ref } from 'vue';
+import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue';
 import { useI18n } from 'vue-i18n';
-import { useRoute, useRouter, onBeforeRouteLeave } from 'vue-router';
+import { useRoute, useRouter, onBeforeRouteLeave, onBeforeRouteUpdate } from 'vue-router';
 import { Message } from '@arco-design/web-vue';
-import { technicalTasks } from '../data/technical';
+import ExecutionTaskList from '../../task-execution/components/ExecutionTaskList.vue';
+import AppDetailHeader from '../../../design/components/AppDetailHeader.vue';
+import AppFieldLabel from '../../../design/components/AppFieldLabel.vue';
+import AppStatusTag from '../../../design/components/AppStatusTag.vue';
+import ConfirmDialog from '../../../shared/components/ConfirmDialog.vue';
+import VehicleValues from '../../vehicle/components/VehicleValues.vue';
+import VehicleTimeline from '../../vehicle/components/VehicleTimeline.vue';
+import { collaborationReady } from '../../vehicle/data/collaboration';
+import { MOCK_CURRENT_USER } from '../../projects/data/projects';
+import { statusRole } from '../../../shared/status';
+import { technicalTasks, technicalVehicleReady, saveTechnicalTask, syncTechnicalSections, withdrawTechnicalTask, type TechnicalTask } from '../data/technical';
 const { t } = useI18n();
 const route = useRoute(); const router = useRouter();
-const rows = reactive(technicalTasks);
-const current = computed(() => rows.find(row => row.id === route.params.id));
-const mode = computed(() => String(route.params.mode || 'view'));
-const editable = computed(() => mode.value === 'edit' && !!current.value?.ready && ['pending', 'submitting', 'rejected', 'withdrawn'].includes(current.value.status));
-const value = ref(''); const opinion = ref(''); const dirty = ref(false);
-watch(() => route.params.id, () => { value.value = current.value?.value || ''; opinion.value = ''; dirty.value = false; }, { immediate: true });
-function save(submit = false) {
-  const task = current.value;
-  if (!task || !editable.value) return;
-  if (submit && (!value.value.trim() || !Number.isFinite(Number(value.value)) || Number(value.value) <= 0)) {
-    Message.error(t('tech.required'));
-    return;
+syncTechnicalSections();
+const current = computed(() => technicalTasks.find(task => task.id === route.params.id));
+const draft = ref<TechnicalTask>();
+const dirty = ref(false);
+const saving = ref(false);
+const valuesRef = ref<InstanceType<typeof VehicleValues>>();
+const coordinator = computed(() => draft.value?.owner === MOCK_CURRENT_USER.name);
+const ready = computed(() => !!draft.value && technicalVehicleReady(draft.value));
+const participant = computed(() => !!draft.value && (coordinator.value || draft.value.assignments?.some(group => group.owner === MOCK_CURRENT_USER.name))
+  && ['pending','submitting','active','rejected','withdrawn'].includes(draft.value.status) && route.params.mode !== 'review');
+const editable = computed(() => participant.value && ready.value);
+/** 审批详情的操作权限由路由审批模式 + 审批中状态决定，不按行的 reviewer 字段判定（与列表视角切换契约一致）。 */
+const canReview = computed(() => route.params.mode === 'review' && draft.value?.status === 'reviewing');
+const approvalResult = ref<'completed' | 'rejected'>();
+const opinion = ref('');
+const approvalError = ref(false);
+const approvalLabel = computed(() => t(approvalResult.value === 'completed' ? 'vehicleApproval.opinion' : 'vehicleApproval.reason'));
+const basics = ['id','name','regulation','priority','status','brand','series','model','end','owner','reviewer','template','version','region','country','type'] as const;
+function fieldLabel(key: typeof basics[number]) {
+  if (key === 'owner') return t('executionList.owner');
+  if (key === 'regulation') return t(`tech.${key}`);
+  if (key === 'brand' || key === 'series' || key === 'model') return t(`projects.${key}`);
+  return t(`vehicle.${key}`);
+}
+function fieldValue(key: typeof basics[number]) {
+  if (!draft.value) return '—';
+  if (key === 'priority') return t(`projects.${draft.value.priority}`);
+  if (key === 'status') return t(`taskStatus.${draft.value.status}`);
+  if (key === 'template') return draft.value.templateSnapshot?.name || '—';
+  if (key === 'region') return t(`templates.regions.${draft.value.region}`);
+  if (key === 'country') return t(`templates.countries.${draft.value.country}`);
+  if (key === 'type') return t(`templates.vehicleTypes.${draft.value.type}`);
+  return draft.value[key] || '—';
+}
+watch(() => route.fullPath, () => {
+  draft.value = current.value ? JSON.parse(JSON.stringify(current.value)) : undefined;
+  dirty.value = false; opinion.value = ''; approvalResult.value = undefined; approvalError.value = false;
+}, { immediate:true });
+async function persist(status?: TechnicalTask['status']) {
+  if (saving.value || !draft.value || (!editable.value && !canReview.value)) return false;
+  if (current.value?.status !== draft.value.status) { Message.error(t('techExecution.changed')); return false; }
+  if (status === 'reviewing') {
+    if (!coordinator.value || !collaborationReady(draft.value)) { Message.error(t('vehicleCollab.notReady')); return false; }
+    if (!valuesRef.value?.validate()) return false;
   }
-  recordTaskEvent(task.project, 'technical', submit ? 'review' : 'draft', task.owner, '', task.id, submit ? task.reviewer : undefined);
-  task.value = value.value;
-  task.status = submit ? 'reviewing' : 'submitting';
-  if (submit) {
-    task.executedAt = new Date().toLocaleString('sv-SE', { timeZone: 'Asia/Shanghai' });
-    task.reviewedAt = '';
-  }
-  dirty.value = false;
-  Message.success(t('tech.saved'));
-  void router.push('/tasks/technical');
+  saving.value = true;
+  try {
+    const next: TechnicalTask = JSON.parse(JSON.stringify(draft.value));
+    next.status = status ?? (next.status === 'active' ? 'active' : 'submitting');
+    const time = new Intl.DateTimeFormat('sv-SE',{timeZone:'Asia/Shanghai',dateStyle:'short',timeStyle:'medium'}).format(new Date());
+    for(const entry of next.entries) if(entry.format === 'ordered') entry.values = next.rowIds!.map((_,index)=>String(index+1));
+    if(status === 'reviewing') { next.executedAt=time; next.reviewedAt=''; }
+    if(status === 'completed' || status === 'rejected') {
+      next.reviewedAt=time; next.actual=status === 'completed'?time.slice(0,10):''; next.opinion=opinion.value.trim();
+      next.reviews ??= []; next.reviews.push({actor:MOCK_CURRENT_USER.name,result:status,opinion:next.opinion,time});
+    }
+    saveTechnicalTask(next,status === 'reviewing'?'review':status === 'completed'?'approve':status === 'rejected'?'reject':'draft',status === 'completed' || status === 'rejected'?opinion.value:'');
+    draft.value=JSON.parse(JSON.stringify(next));dirty.value=false;opinion.value='';Message.success(t('tech.saved'));return true;
+  } catch { Message.error(t('techExecution.failed'));return false; } finally { saving.value=false; }
 }
-function review(pass: boolean) {
-  const task = current.value;
-  if (!task || mode.value !== 'review' || task.status !== 'reviewing' || !opinion.value.trim()) {
-    Message.error(t('tech.opinionRequired'));
-    return;
-  }
-  recordTaskEvent(task.project, 'technical', pass ? 'approve' : 'reject', task.reviewer, opinion.value, task.id, pass ? undefined : task.owner);
-  task.status = pass ? 'completed' : 'rejected';
-  task.reviewedAt = new Date().toLocaleString('sv-SE', { timeZone: 'Asia/Shanghai' });
-  task.actual = pass ? task.reviewedAt.slice(0, 10) : '';
-  task.opinion = opinion.value;
-  dirty.value = false;
-  void router.push('/tasks/technical');
+function focusApproval() { nextTick(()=>document.getElementById('technical-approval-input')?.focus()); }
+function review(result:'completed'|'rejected') { if(!canReview.value || saving.value)return;approvalResult.value=result;opinion.value='';approvalError.value=false;focusApproval(); }
+function closeApproval() { if(saving.value)return;approvalResult.value=undefined;opinion.value='';approvalError.value=false; }
+async function confirmApproval() {
+  if(!canReview.value || !approvalResult.value || saving.value)return;
+  if(!opinion.value.trim() || Array.from(opinion.value).length>200) {approvalError.value=true;focusApproval();return;}
+  if(await persist(approvalResult.value))closeApproval();
 }
-onBeforeRouteLeave(() => !dirty.value || requestLeave());
-const leaveVisible = ref(false);
-let resolveLeave: ((allow: boolean) => void) | undefined;
-function requestLeave() {
-  return new Promise<boolean>(resolve => { resolveLeave = resolve; leaveVisible.value = true; });
-}
-function finishLeave(allow: boolean) {
-  leaveVisible.value = false;
-  resolveLeave?.(allow);
-  resolveLeave = undefined;
-}
+const leaveVisible=ref(false);
+let resolveLeave:((allow:boolean)=>void)|undefined;
+function requestLeave() { return new Promise<boolean>(resolve=>{resolveLeave=resolve;leaveVisible.value=true;}); }
+function finishLeave(allow:boolean) {leaveVisible.value=false;resolveLeave?.(allow);resolveLeave=undefined;}
+onBeforeRouteLeave(()=>!dirty.value && !valuesRef.value?.overlayDirty || requestLeave());
+onBeforeRouteUpdate(()=>!dirty.value && !valuesRef.value?.overlayDirty || requestLeave());
+function beforeUnload(event:BeforeUnloadEvent) {if(!dirty.value && !valuesRef.value?.overlayDirty)return;event.preventDefault();event.returnValue='';}
+window.addEventListener('beforeunload',beforeUnload);
+onBeforeUnmount(()=>window.removeEventListener('beforeunload',beforeUnload));
 </script>
 <template>
- <main class="technical-page">
-  <header v-if="route.params.id"><a-button @click="router.push('/tasks/technical')">{{ t('tech.back') }}</a-button></header>
-  
-  <ExecutionTaskList v-if="!route.params.id" module="technical" :rows="rows" />
-  <section v-else-if="current" class="detail">
-   <h2>{{ t('tech.base') }}</h2><a-descriptions :column="2" bordered><a-descriptions-item v-for="key in (['regulation','project','name','owner','reviewer'] as const)" :key="key" :label="t(`tech.${key}`)">{{ current[key] }}</a-descriptions-item><a-descriptions-item :label="t('tech.status')">{{ t(`projects.${current.status}`) }}</a-descriptions-item></a-descriptions>
-   <h2>{{ t('tech.content') }}</h2><a-alert v-if="!current.ready">{{ t('tech.gate') }}</a-alert>
-   <a-form :model="{}" layout="vertical"><a-form-item :label="t('tech.mass')" :required="editable"><a-input v-if="editable" v-model="value" :disabled="!current.ready" @input="dirty = true" /><span v-else>{{ current.value || '—' }}</span></a-form-item>
-   <a-form-item v-if="mode === 'review' && current.status === 'reviewing'" :label="t('tech.opinion')" required><a-textarea v-model="opinion" @input="dirty = true" /></a-form-item></a-form>
-   <a-space v-if="editable"><a-button @click="save()">{{ t('tech.save') }}</a-button><a-button type="primary" @click="save(true)">{{ t('tech.submit') }}</a-button></a-space>
-   <a-space v-if="mode === 'review' && current.status === 'reviewing'"><a-button status="danger" @click="review(false)">{{ t('tech.reject') }}</a-button><a-button type="primary" @click="review(true)">{{ t('tech.pass') }}</a-button></a-space>
-   <h2>{{ t('tech.history') }}</h2><p>{{ current.opinion || t('tech.noHistory') }}</p>
-  </section><a-empty v-else :description="t('tech.empty')" />
- </main>
-<ConfirmDialog unsaved :visible="leaveVisible" :title="t('tech.leave')" @update:visible="finishLeave(false)" @confirm="finishLeave(true)" />
+  <main class="technical-page">
+    <ExecutionTaskList v-if="!route.params.id" module="technical" :rows="technicalTasks" :withdraw-task="withdrawTechnicalTask" />
+    <template v-else-if="draft">
+      <AppDetailHeader ancestor-to="/tasks/technical" :ancestor-label="t('tech.title')" :current-label="route.params.mode === 'execute' ? t('executionWorkspace.execute') : route.params.mode === 'edit' ? t('executionWorkspace.edit') : route.params.mode === 'review' ? t('executionWorkspace.review') : t('executionWorkspace.detail')">
+        <template #actions><a-space v-if="participant"><a-button class="app-btn-neutral" :disabled="saving" @click="router.push('/tasks/technical')">{{ t('templates.cancel') }}</a-button><a-button type="outline" class="app-btn-neutral technical-draft-button" :loading="saving" :disabled="!ready" @click="persist()">{{ t('vehicle.save') }}</a-button><a-button v-if="coordinator" type="primary" :loading="saving" :disabled="!ready || !collaborationReady(draft)" @click="persist('reviewing')">{{ t('vehicle.submit') }}</a-button></a-space><a-space v-else-if="canReview"><a-button class="app-btn-neutral" :disabled="saving" @click="review('rejected')">{{ t('vehicle.reject') }}</a-button><a-button type="primary" :loading="saving" @click="review('completed')">{{ t('vehicle.pass') }}</a-button></a-space></template>
+      </AppDetailHeader>
+      <div class="detail-block" role="region" :aria-label="t('techExecution.info')"><h2>{{ t('techExecution.info') }}</h2><dl class="technical-facts"><div v-for="key in basics" :key="key"><dt><AppFieldLabel context="detail" colon :text="fieldLabel(key)" /></dt><dd><AppStatusTag v-if="key === 'status'" :role="statusRole(draft.status,'tasks')" :label="fieldValue(key)" /><template v-else>{{ fieldValue(key) }}</template></dd></div></dl></div>
+      <div class="detail-block" role="region" :aria-label="t('techExecution.content')"><h2>{{ t('techExecution.content') }}</h2><a-alert v-if="!ready && participant" type="warning" class="gate-warning">{{ t('tech.gate') }}</a-alert><VehicleValues :key="draft.id" ref="valuesRef" :model-value="draft" :readonly="!editable || saving" :manager="coordinator" :actor="MOCK_CURRENT_USER.name" :table-label="t('techExecution.content')" :positive-entry-id="draft.referenceEntryId" :positive-message="t('tech.required')" @change="dirty=true" @save="done=>persist().then(done)" /></div>
+      <VehicleTimeline class="technical-timeline" :record="current || draft" module-code="technical" :include-unscoped="false" />
+    </template>
+    <a-empty v-else :description="t('tech.empty')" />
+  </main>
+  <a-modal :visible="!!approvalResult" :width="560" role="dialog" aria-modal="true" :aria-label="approvalLabel" :title="t(approvalResult === 'completed'?'vehicle.pass':'vehicle.reject')" :mask-closable="false" :esc-to-close="!saving" :closable="!saving" @cancel="closeApproval" @open="focusApproval">
+    <a-form :model="{opinion}" layout="vertical" @submit-success="confirmApproval"><a-form-item field="opinion" required :validate-status="approvalError?'error':undefined" :help="approvalError?t('vehicleApproval.required',{field:approvalLabel}):undefined"><template #label><AppFieldLabel as="label" for="technical-approval-input" context="editable" :text="approvalLabel" /></template><a-textarea v-model="opinion" :textarea-attrs="{id:'technical-approval-input','aria-label':approvalLabel,'aria-required':true,'aria-invalid':approvalError}" :max-length="200" show-word-limit :auto-size="{minRows:4,maxRows:8}" :disabled="saving" @input="approvalError=false" /></a-form-item></a-form>
+    <template #footer><a-space><a-button class="app-btn-neutral" :disabled="saving" @click="closeApproval">{{ t('templates.cancel') }}</a-button><a-button type="primary" :loading="saving" @click="confirmApproval">{{ t('designSystem.confirm') }}</a-button></a-space></template>
+  </a-modal>
+  <ConfirmDialog unsaved :visible="leaveVisible" :title="t('tech.leave')" @update:visible="finishLeave(false)" @confirm="finishLeave(true)" />
 </template>
 <style scoped>
-.technical-page { min-width: 0; color: var(--app-text-primary); font-size: var(--mt-ds-font-body); }
-header { display: flex; justify-content: flex-end; margin-bottom: var(--mt-ds-space-3); }
-.filters, .list, .detail { min-width: 0; padding: var(--mt-ds-space-4); background: var(--app-surface-container); }
-/* 筛选区布局统一走 global.css 的 app-filter-strip / app-filter-unit / app-filter-actions */
-.filters { margin-bottom: var(--mt-ds-space-3); }
-.detail :deep(.arco-form) { margin-top: var(--mt-ds-space-4); width: var(--mt-ds-form-width); max-width: 100%; }
-h2 { margin: var(--mt-ds-space-4) 0; font-size: var(--mt-ds-font-title); line-height: var(--mt-ds-line-title); font-weight: var(--mt-ds-weight-title); }
-h2:first-child { margin-top: 0; }
-:deep(.arco-table-th) { height: 50px; background: var(--app-surface); }
-:deep(.arco-table-th), :deep(.arco-table-td), :deep(.arco-tag), :deep(.arco-btn), :deep(.arco-form-item-label) { font-weight: var(--mt-ds-weight-body); }
-:deep(.arco-table-container) { border: 0; }
-:deep(.arco-table-td) { height: 50px; border-bottom: 1px solid var(--app-divider); }
-/* 窄屏流式布局由 global.css 的 .app-filter-strip 媒体查询统一处理 */
+.technical-page { min-width:0;display:flex;flex-direction:column;gap:var(--mt-ds-space-3);color:var(--color-text-1); }
+.detail-block { min-width:0;padding:var(--mt-ds-space-4);background:var(--app-surface); }
+h2 {margin:0 0 var(--mt-ds-space-4);padding-bottom:var(--mt-ds-space-3);border-bottom:1px solid var(--app-divider);font-size:var(--mt-ds-font-title);font-weight:var(--mt-ds-weight-title);}
+.technical-facts {display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:var(--mt-ds-space-4);margin:0;}
+.technical-facts>div {display:flex;align-items:baseline;gap:var(--mt-ds-space-2);min-width:0;}
+.technical-facts dt {flex-shrink:0;color:var(--color-text-3);}
+.technical-facts dd {margin:0;overflow-wrap:anywhere;}
+.technical-draft-button.arco-btn {background-color:transparent;}
+.gate-warning {margin-bottom:var(--mt-ds-space-4);}
+@media(max-width:1000px){.technical-facts{grid-template-columns:repeat(2,minmax(0,1fr));}}
+@media(max-width:600px){.technical-facts{grid-template-columns:1fr;}}
 </style>

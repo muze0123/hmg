@@ -1,12 +1,12 @@
 <script setup lang="ts">
 import AppFieldLabel from './AppFieldLabel.vue';
-defineProps<{ fields: readonly { key: string; label: string; value: string }[] }>();
+defineProps<{ fields: readonly { key: string; label: string; value: string }[]; colon?: boolean }>();
 </script>
 
 <template>
   <dl class="mt-detail-list">
     <div v-for="field in fields" :key="field.key" class="mt-detail-list__row">
-      <dt><AppFieldLabel :text="field.label" context="detail" /></dt>
+      <dt><AppFieldLabel :text="field.label" context="detail" :colon="colon" /></dt>
       <dd>{{ field.value }}</dd>
     </div>
   </dl>

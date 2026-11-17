@@ -14,7 +14,7 @@ const visible = defineModel<boolean>('visible');
 const emit = defineEmits<{ saved: [] }>();
 const { t } = useI18n();
 const blank = (): SectionEntry => ({ id: crypto.randomUUID(), law: '', template: '', externalReview: undefined, approval: 'pending' });
-const rows = ref<SectionEntry[]>(props.item.entries?.length ? props.item.entries.map(row => ({ ...row })) : [{ ...blank(), law: props.item.law }]);
+const rows = ref<SectionEntry[]>(props.item.entries?.length ? props.item.entries.map(row => ({ ...row })) : [blank()]);
 const initial = ref(JSON.stringify(rows.value));
 const dirty = computed(() => JSON.stringify(rows.value) !== initial.value);
 const people = computed(() => sectionPeople(props.item));
@@ -142,7 +142,7 @@ async function save(submit: boolean) {
         <span class="sr-only" aria-live="polite">{{ announce }}</span>
       </section>
     </div>
-    <template #footer><div class="execution-footer"><a-button class="app-btn-neutral" :disabled="busy" @click="requestClose">{{ t('sections.cancel') }}</a-button><a-button :loading="busy" @click="save(false)">{{ t('taskExecution.draft') }}</a-button><a-button type="primary" :loading="busy" @click="save(true)">{{ t('taskExecution.submit') }}</a-button></div></template>
+    <template #footer><div class="execution-footer"><a-button class="app-btn-neutral" :disabled="busy" @click="requestClose">{{ t('sections.cancel') }}</a-button><a-button class="app-btn-neutral" :loading="busy" @click="save(false)">{{ t('taskExecution.draft') }}</a-button><a-button type="primary" :loading="busy" @click="save(true)">{{ t('taskExecution.submit') }}</a-button></div></template>
   </a-drawer>
   <ConfirmDialog :visible="leaveVisible" unsaved :title="t('projects.taskCreate.unsaved')" @update:visible="leaveVisible = $event" @confirm="discard" />
 </template>

@@ -11,6 +11,7 @@ const router = createRouter({
   routes: [
  { path: '/projects/:id', component: () => import('../modules/projects/pages/TaskExecutionPage.vue'), meta: { layout: 'product' } },
  { path: '/projects/:id/execute', component: () => import('../modules/projects/pages/TaskExecutionPage.vue'), meta: { layout: 'product' } },
+    { path: '/certificate-library/:id?/:mode?', name: 'certificate-library', component: () => import('../modules/certificate-library/pages/CertificateLibraryPage.vue'), meta: { layout: 'product' } },
     { path: '/tags', name: 'tags', component: () => import('../modules/tags/pages/TagsPage.vue'), meta: { layout: 'product' } },
     { path: '/tasks/testing/:id?/:mode?', name: 'testing', component: () => import('../modules/testing/pages/TestingPage.vue'), meta: { layout: 'product' } },
     { path: '/templates/:section(configuration|usage)?', name: 'templates', component: () => import('../modules/templates/pages/TemplatesPage.vue'), meta: { layout: 'product' } },

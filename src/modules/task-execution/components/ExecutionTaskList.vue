@@ -11,7 +11,7 @@ import ColumnSettingsPopover, { type ColumnSettingsItem } from '../../../shared/
 import ConfirmDialog from '../../../shared/components/ConfirmDialog.vue';
 import { TASK_STATUSES, type TaskStatus } from '../../../shared/taskLifecycle';
 import { statusRole } from '../../../shared/status';
-import { MOCK_CURRENT_USER } from '../../projects/data/projects';
+import { MOCK_CURRENT_USER, PRIORITY_CODES } from '../../projects/data/projects';
 import { recordTaskEvent } from '../../projects/data/history';
 import { useTaskCenterStore } from '../../task-center/stores/taskCenter';
 interface Row {
@@ -19,7 +19,7 @@ interface Row {
   name?: string; priority?: string; createdAt?: string; end?: string; actual?: string;
   owner?: string; executedAt?: string; reviewer?: string; reviewedAt?: string;
 }
-const props = defineProps<{ module: 'testing' | 'reports' | 'certificates' | 'technical'; rows: Row[] }>();
+const props = defineProps<{ module: 'testing' | 'reports' | 'certificates' | 'technical'; rows: Row[]; withdrawTask?: (id: string, perspective: 'submitter' | 'approver') => boolean }>();
 const { t } = useI18n();
 const router = useRouter();
 const taskCenter = useTaskCenterStore();
@@ -38,6 +38,9 @@ const columnItems = computed(() => columns.value.map(item => ({ ...item, label: 
 const filterDefaults = computed(() => defaultFilters().map(item => ({ ...item, label: label(item.key) })));
 const columnDefaults = computed(() => defaultColumns().map(item => ({ ...item, label: label(item.key) })));
 const filterOpen = ref(false), columnOpen = ref(false);
+/** 审批中行的操作由工具栏视角切换控件决定，不按行的 owner/reviewer 字段判定（与证书库 / 模版管理契约一致）。 */
+type ViewMode = 'submitter' | 'approver';
+const viewMode = ref<ViewMode>('submitter');
 const draft = reactive<Partial<Record<Key, string>>>({});
 const applied = ref<Partial<Record<Key, string>>>({});
 const page = ref(1), pageSize = ref(10);
@@ -51,10 +54,10 @@ function changeFilters(items: ColumnSettingsItem[]) {
 }
 function options(key: Key): string[] {
   if (key === 'status') return [...TASK_STATUSES];
-  if (key === 'priority') return ['urgent', 'high', 'normal'];
+  if (key === 'priority') return [...PRIORITY_CODES];
   return [...new Set(props.rows.map(row => row[key] || '').filter(Boolean))];
 }
-function optionLabel(key: Key, value: string) { return key === 'status' ? t(`taskStatus.${value}`) : key === 'priority' ? t(`sections.${value}`) : value; }
+function optionLabel(key: Key, value: string) { return key === 'status' ? t(`taskStatus.${value}`) : key === 'priority' ? t(`projects.${value}`) : value; }
 function cell(row: Row, key: Key) { return optionLabel(key, row[key] || '') || '—'; }
 function compare(a: Row, b: Row, key: Key, order: string) {
   const x = a[key] || '', y = b[key] || '';
@@ -80,20 +83,25 @@ function sort(key: string, order: string) { sortKey.value = filterOrder.includes
 function actions(row: Row) {
   if (row.status === 'pending') return ['execute'];
   if (['submitting', 'rejected', 'withdrawn'].includes(row.status)) return ['edit'];
-  if (row.status === 'reviewing') {
-    if (row.owner === MOCK_CURRENT_USER.name) return ['withdraw'];
-    if (row.reviewer === MOCK_CURRENT_USER.name) return ['review'];
-  }
+  if (row.status === 'reviewing') return [viewMode.value === 'submitter' ? 'withdraw' : 'review'];
   return [];
 }
 const withdrawing = ref<Row>();
 function open(row: Row, action: string) {
   if (action === 'withdraw') { withdrawing.value = row; return; }
-  void router.push(`/tasks/${props.module}/${row.id}/${action === 'execute' ? 'edit' : action}`);
+  const mode = action;
+  void router.push(`/tasks/${props.module}/${row.id}/${mode}`);
 }
 function withdraw() {
   const row = withdrawing.value;
-  if (!row || row.status !== 'reviewing' || row.owner !== MOCK_CURRENT_USER.name) { Message.warning(t('taskWithdrawal.changed')); withdrawing.value = undefined; return; }
+  if (!row || row.status !== 'reviewing' || viewMode.value !== 'submitter') { Message.warning(t('taskWithdrawal.changed')); withdrawing.value = undefined; return; }
+  if (props.withdrawTask) {
+    try {
+      if (!props.withdrawTask(row.id, viewMode.value)) { Message.warning(t('taskWithdrawal.changed')); return; }
+      withdrawing.value = undefined; Message.success(t('taskWithdrawal.success'));
+    } catch { Message.error(t('vehicle.actionFailed')); }
+    return;
+  }
   row.status = 'withdrawn';
   recordTaskEvent(row.project, props.module === 'reports' ? 'report' : props.module === 'certificates' ? 'certificate' : props.module, 'withdraw', row.owner, '', row.id);
   withdrawing.value = undefined;
@@ -137,7 +145,10 @@ async function exportRows() {
     </form>
     <section class="panel list-panel" :aria-label="t(`executionList.modules.${module}`)">
       <div class="toolbar"><a-button class="app-btn-neutral" @click="requestExport"><template #icon><IconDownload /></template>{{ t('sections.export') }}</a-button>
-        <ColumnSettingsPopover v-model:visible="columnOpen" :items="columnItems" :default-items="columnDefaults" :title="t('sections.columns.settings')" :list-aria-label="t('sections.columns.settings')" :show-label="t('sections.filters.show')" :restore-label="t('sections.filters.restore')" @change="columns = $event"><a-tooltip :content="t('sections.columns.settings')"><a-button class="app-btn-neutral icon-button" :aria-label="t('sections.columns.settings')"><IconSettings /></a-button></a-tooltip></ColumnSettingsPopover>
+        <div class="toolbar-settings">
+          <a-select v-model="viewMode" class="view-mode-select" :aria-label="t('executionList.viewMode')"><a-option value="submitter">{{ t('executionList.submitterView') }}</a-option><a-option value="approver">{{ t('executionList.approverView') }}</a-option></a-select>
+          <ColumnSettingsPopover v-model:visible="columnOpen" :items="columnItems" :default-items="columnDefaults" :title="t('sections.columns.settings')" :list-aria-label="t('sections.columns.settings')" :show-label="t('sections.filters.show')" :restore-label="t('sections.filters.restore')" @change="columns = $event"><a-tooltip :content="t('sections.columns.settings')"><a-button class="app-btn-neutral icon-button" :aria-label="t('sections.columns.settings')"><IconSettings /></a-button></a-tooltip></ColumnSettingsPopover>
+        </div>
       </div>
       <a-table row-key="id" :columns="tableColumns" :data="results.slice((page-1)*pageSize,page*pageSize)" :pagination="false" :bordered="false" :scroll="{ x: visibleColumns.reduce((sum,item) => sum + (item.key === 'name' ? 280 : 180), 170) }" @sorter-change="sort">
         <template #field="{record,column}"><AppStatusTag v-if="column.dataIndex === 'status' || column.dataIndex === 'priority'" :role="column.dataIndex === 'status' ? statusRole(record.status, 'tasks') : record.priority === 'urgent' ? 'danger' : record.priority === 'high' ? 'warning' : 'neutral'" :label="cell(record, column.dataIndex)" /><span v-else>{{ cell(record,column.dataIndex) }}</span></template>
@@ -155,7 +166,9 @@ async function exportRows() {
 .panel { min-width: 0; padding: var(--mt-ds-space-4); border-radius: 2px; background: var(--app-surface); }
 .list-panel { overflow: hidden; }
 .toolbar { display:flex; align-items:center; justify-content:space-between; gap:var(--mt-ds-space-2); margin-bottom:var(--mt-ds-space-4); }
-.icon-button { display:inline-grid; width:32px; height:32px; padding:0; place-items:center; }
+.toolbar-settings { display:flex; align-items:center; gap:var(--mt-ds-space-2); flex-wrap:nowrap; }
+.toolbar-settings :deep(.view-mode-select) { flex:0 0 160px; width:160px; }
+.icon-button { display:inline-grid; flex:0 0 32px; width:32px; height:32px; padding:0; place-items:center; }
 .execution-list .list-panel :deep(.arco-table-th) { height:50px; padding:0 12px; background:var(--app-table-header); font-weight:400; white-space:nowrap; }
 .execution-list .list-panel :deep(.arco-table-td) { height:50px; padding:8px 12px; border-bottom:1px solid var(--app-divider); background:var(--app-surface); font-weight:400; white-space:nowrap; }
 .row-actions { display:flex; gap:var(--mt-ds-space-3); }

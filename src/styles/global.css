@@ -597,6 +597,20 @@ body .arco-textarea-wrapper.arco-textarea-disabled {
 .audit-drawer .arco-drawer .arco-select-view.arco-select-view-focus { border-color: var(--app-accent); }
 .audit-drawer .slide-right-drawer-leave-active { transition-timing-function: linear; }
 
+/* ---------------------------------------------------------------- 资料填写单元格抽屉 */
+/* 与 .audit-drawer 同构的业务抽屉壳（DESIGN.md · Drawer / Business-drawer surface）：
+   Fill-1 灰画布 + 白色 56px 头 / 固定底栏 / 白色内容分组卡片，16px 内边距与间距，
+   内容区块由调用方以 .value-drawer-group 包成白卡；向右滑出用线性缓动。 */
+.value-drawer .arco-drawer { background: var(--app-fill-1); }
+.value-drawer .arco-drawer-header { height: 56px; background: var(--app-surface); }
+.value-drawer .arco-drawer-title { font-size: 16px; font-weight: 600; line-height: 24px; }
+.value-drawer .arco-drawer-footer { background: var(--app-surface); }
+.value-drawer .arco-drawer-body {
+  display: flex; flex-direction: column; gap: 16px;
+  padding: 16px; overflow-y: auto;
+}
+.value-drawer .slide-right-drawer-leave-active { transition-timing-function: linear; }
+
 /* ---------------------------------------------------------------- 详情字段列表 */
 /* 只读详情抽屉用「标签列 + 值列」行式排布——标签 Text-2、值 Text-1，标签与值之间
    16px，相邻字段上下间距 10px，无单元格边框；列宽随最长标签自适应、不小于 112px。 */

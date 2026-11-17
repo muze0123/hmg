@@ -2,19 +2,20 @@ import ExcelJS from 'exceljs';
 import type { TemplateRecord } from './templates';
 
 /**
- * 模版使用记录导出（DESIGN.md · Batch export baseline）。
+ * 模版工作簿导出（DESIGN.md · Batch export baseline）。
  *
- * 只把「已应用筛选结果」按当前可见列写成 xlsx；表头与枚举文案由页面层翻译好后传入，
- * 本文件不依赖 i18n，也不决定列集。文件名与下载任务登记由页面层负责。
+ * 配置态与使用记录态共用：只把「已应用筛选结果」按当前可见列写成 xlsx；
+ * 表头与枚举文案由页面层翻译好后传入，本文件不依赖 i18n，也不决定列集。
+ * 文件名与下载任务登记由页面层负责。
  */
-export interface UsageExportHeader {
+export interface TemplateExportHeader {
   key: string;
   label: string;
 }
 
-export interface UsageExportInput {
+export interface TemplateExportInput {
   rows: TemplateRecord[];
-  headers: UsageExportHeader[];
+  headers: TemplateExportHeader[];
   sheetName: string;
   /** 单元格展示文本：枚举走当前语言文案，空值统一「—」 */
   display: (row: TemplateRecord, key: string) => string;
@@ -22,14 +23,24 @@ export interface UsageExportInput {
 
 const COLUMN_WIDTHS: Record<string, number> = {
   name: 24,
+  description: 30,
   type: 18,
-  version: 14,
+  regulation: 20,
+  region: 16,
+  country: 16,
+  vehicleType: 18,
+  status: 16,
+  version: 16,
+  createdBy: 16,
+  created: 20,
+  updatedBy: 16,
+  updated: 20,
   project: 22,
   user: 16,
   used: 22,
 };
 
-export async function makeUsageExport(input: UsageExportInput): Promise<Blob> {
+export async function makeTemplateExport(input: TemplateExportInput): Promise<Blob> {
   const workbook = new ExcelJS.Workbook();
   workbook.creator = 'app';
   const sheet = workbook.addWorksheet(input.sheetName, { views: [{ state: 'frozen', ySplit: 1 }] });

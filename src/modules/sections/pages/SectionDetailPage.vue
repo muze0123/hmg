@@ -2,7 +2,7 @@
 import { computed } from 'vue';
 import { useRoute } from 'vue-router';
 import { useI18n } from 'vue-i18n';
-import { IconLeft } from '@arco-design/web-vue/es/icon';
+import AppDetailHeader from '../../../design/components/AppDetailHeader.vue';
 import TaskDetailSection from '../../projects/components/TaskDetailSection.vue';
 import { projects } from '../../projects/data/projects';
 import { items } from '../data/items';
@@ -21,13 +21,12 @@ function templateName(id: string) {
 
 <template>
   <main class="section-detail">
-    <header class="detail-toolbar">
-      <nav class="detail-breadcrumb" :aria-label="t('sections.detailBreadcrumb')">
-        <router-link class="detail-ancestor" to="/sections" :aria-label="t('sections.detailBack')"><IconLeft />{{ t('sections.title') }}</router-link>
-        <span class="detail-separator" aria-hidden="true">/</span>
-        <span class="detail-current" aria-current="page">{{ t('sections.detail') }}</span>
-      </nav>
-    </header>
+    <AppDetailHeader
+      ancestor-to="/sections"
+      :ancestor-label="t('sections.title')"
+      :current-label="t('sections.detail')"
+      :nav-aria-label="t('sections.detailBreadcrumb')"
+    />
     <template v-if="item && parent">
       <TaskDetailSection :record="parent" block="task" />
       <TaskDetailSection :record="parent" block="sections" />
@@ -49,14 +48,8 @@ function templateName(id: string) {
 
 <style scoped>
 .section-detail { display: flex; flex-direction: column; gap: var(--mt-ds-space-3); min-width: 0; color: var(--mt-ds-text); }
-.detail-toolbar,.detail-block { padding: var(--mt-ds-space-4); border-radius: var(--mt-ds-control-radius); background: var(--app-surface); min-width: 0; }
-.detail-toolbar { display: flex; align-items: center; justify-content: space-between; gap: var(--mt-ds-space-4); flex-wrap: wrap; }
-.detail-breadcrumb { display: flex; align-items: center; flex-wrap: wrap; gap: var(--mt-ds-space-2); font-size: var(--mt-ds-font-body); line-height: var(--mt-ds-line-body); }
-.detail-ancestor { display: inline-flex; align-items: center; gap: var(--mt-ds-space-2); color: var(--color-text-3); font-weight: var(--mt-ds-weight-body); text-decoration: none; }
-.detail-ancestor:hover { color: var(--app-color-primary); }
-.detail-ancestor:focus-visible { outline: 2px solid var(--app-accent); outline-offset: 2px; }
-.detail-separator { color: var(--color-text-3); }
-.detail-current { color: var(--color-text-1); font-weight: var(--mt-ds-weight-title); }
+.section-detail :deep(.detail-ancestor:hover) { background: transparent; }
+.detail-block { padding: var(--mt-ds-space-4); border-radius: var(--mt-ds-control-radius); background: var(--app-surface); min-width: 0; }
 h2 { margin: 0 0 var(--mt-ds-space-3); padding-bottom: var(--mt-ds-space-3); border-bottom: 1px solid var(--app-divider); font-size: var(--mt-ds-font-title); line-height: var(--mt-ds-line-title); font-weight: var(--mt-ds-weight-title); }
 .table-scroll { min-width: 0; overflow-x: auto; }
 .readonly-table { width: 100%; min-width: 600px; border-collapse: separate; border-spacing: 0; font-size: var(--mt-ds-font-body); line-height: var(--mt-ds-line-body); }

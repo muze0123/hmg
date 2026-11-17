@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, reactive, ref } from 'vue';
+import { onBeforeRouteLeave, onBeforeRouteUpdate } from 'vue-router';
 
 import { useI18n } from 'vue-i18n';
 import { Message } from '@arco-design/web-vue';
@@ -7,6 +8,9 @@ import { IconLeft } from '@arco-design/web-vue/es/icon';
 import AppFieldLabel from '../../../design/components/AppFieldLabel.vue';
 import ConfirmDialog from '../../../shared/components/ConfirmDialog.vue';
 import { projects, TASK_CODES, MOCK_CURRENT_USER, people, type SubTask } from '../data/projects';
+import { templateRecords } from '../../templates/data/templates';
+import { createVehicleTask, vehicleTemplateValid } from '../../vehicle/data/execution';
+import { saveVehicle } from '../../vehicle/data/vehicle';
 import { useProjectLabels } from '../labels';
 const { t } = useI18n();
 const label = useProjectLabels();
@@ -19,6 +23,7 @@ const vehicleOptions = [
   { brand: '品牌1', series: [{ name: 'S1', models: ['M1', 'M2'] }, { name: 'S2', models: ['M3'] }] },
   { brand: '品牌2', series: [{ name: 'S3', models: ['M4', 'M5'] }] },
 ];
+const vehicleTemplates = computed(() => templateRecords.value.filter(template => template.type === 'vehicle' && template.status === 'completed'));
 const savedDraft = record.value?.executionDraft;
 const form = reactive({ brand: savedDraft?.brand || '', series: savedDraft?.series || '', model: savedDraft?.model || '', tasks: TASK_CODES.map(code => {
   const draftTask = savedDraft?.tasks.find(item => item.code === code);
@@ -40,7 +45,19 @@ function requestClose() {
   if (JSON.stringify(form) === initial.value) { visible.value = false; return; }
   leaveVisible.value = true;
 }
+let resolveRouteLeave: ((allow: boolean) => void) | undefined;
+function guardRouteLeave() {
+  if (!visible.value || JSON.stringify(form) === initial.value) return true;
+  if (busy.value) return false;
+  leaveVisible.value = true;
+  return new Promise<boolean>(resolve => { resolveRouteLeave = resolve; });
+}
+onBeforeRouteLeave(guardRouteLeave);
+onBeforeRouteUpdate(guardRouteLeave);
 function leave(allow: boolean) {
+  const resolve = resolveRouteLeave;
+  resolveRouteLeave = undefined;
+  resolve?.(allow);
   leaveVisible.value = false;
   if (allow) visible.value = false;
 }
@@ -53,41 +70,54 @@ async function save(submit: boolean) {
     const errors = await formRef.value?.validate();
     if (errors) { formRef.value?.scrollToField(Object.keys(errors)[0]); return; }
     if (!form.tasks.some(item => item.enabled)) { Message.error(t('taskExecution.typesRequired')); return; }
+    const vehicle = form.tasks.find(item => item.code === 'vehicle' && item.enabled);
+    if (vehicle && !vehicleTemplateValid(vehicleTemplates.value.find(template => template.id === vehicle.template))) {
+      Message.error(t('vehicleFill.invalidTemplate'));
+      formRef.value?.scrollToField(`tasks.${form.tasks.indexOf(vehicle)}.template`);
+      return;
+    }
   }
   busy.value = true;
   try {
+    const nextProject = JSON.parse(JSON.stringify(record.value)) as NonNullable<typeof record.value>;
     // Preserve all draft fields, including unchecked rows, independently from submitted subtasks.
-    record.value.executionDraft = {
+    nextProject.executionDraft = {
       brand: form.brand,
       series: form.series,
       model: form.model,
       tasks: form.tasks.map(item => ({ ...item })),
     };
     const selected: SubTask[] = form.tasks.filter(item => item.enabled).map(item => ({ code: item.code, target: item.target, template: item.code === 'vehicle' ? item.template : '', status: 'pending', executor: item.executor, reviewer: item.reviewer }));
-    Object.assign(record.value, { brand: form.brand, series: form.series, model: form.model, subTasks: selected, updater: MOCK_CURRENT_USER.name, updatedAt: new Intl.DateTimeFormat('sv-SE', { timeZone: 'Asia/Shanghai', dateStyle: 'short', timeStyle: 'medium' }).format(new Date()) });
+    Object.assign(nextProject, { brand: form.brand, series: form.series, model: form.model, subTasks: selected, updater: MOCK_CURRENT_USER.name, updatedAt: new Intl.DateTimeFormat('sv-SE', { timeZone: 'Asia/Shanghai', dateStyle: 'short', timeStyle: 'medium' }).format(new Date()) });
     if (submit) {
-      record.value.status = 'active';
-      record.value.subTasks.forEach(task => { task.status = task.code === 'vehicle' ? 'active' : 'pending'; });
+      nextProject.status = 'active';
+      nextProject.subTasks.forEach(task => { task.status = task.code === 'vehicle' ? 'active' : 'pending'; });
     }
-    record.value.history = [...(record.value.history || []), {
+    nextProject.history = [...(nextProject.history || []), {
       id: `${Date.now()}`, action: submit ? 'execute' : 'draft',
-      actor: MOCK_CURRENT_USER.name, time: record.value.updatedAt,
-      taskCodes: submit ? [] : selected.map(task => task.code), taskName: record.value.name,
+      actor: MOCK_CURRENT_USER.name, time: nextProject.updatedAt,
+      taskCodes: submit ? [] : selected.map(task => task.code), taskName: nextProject.name,
       vehicle: { brand: form.brand, series: form.series, model: form.model },
       taskConfigs: selected.map(({ code, target, template }) => ({ code, target, template })),
     }];
     if (submit) {
-      record.value.history.push(...selected.map(task => ({
+      nextProject.history.push(...selected.map(task => ({
         id: `${Date.now()}-${task.code}`, action: task.code === 'vehicle' ? 'execute' as const : 'create' as const,
-        actor: MOCK_CURRENT_USER.name, time: record.value!.updatedAt, taskCodes: [task.code], taskName: record.value!.name,
+        actor: MOCK_CURRENT_USER.name, time: nextProject.updatedAt, taskCodes: [task.code], taskName: nextProject.name,
       })));
     }
+    if (submit) {
+      const child = nextProject.subTasks.find(task => task.code === 'vehicle');
+      const template = vehicleTemplates.value.find(template => template.id === child?.template);
+      if (child && template) saveVehicle(createVehicleTask(nextProject, child, template));
+    }
+    Object.assign(record.value, nextProject);
     initial.value = JSON.stringify(form);
     submitted.value = submit;
     Message.success(t(submit ? 'taskExecution.submitted' : 'taskExecution.saved'));
     emit('saved');
     visible.value = false;
-  } finally { busy.value = false; }
+  } catch { Message.error(t('vehicle.actionFailed')); } finally { busy.value = false; }
 }
 </script>
 <template>
@@ -105,12 +135,12 @@ async function save(submit: boolean) {
           <td><a-checkbox v-model="task.enabled" @change="formRef?.clearValidate([`tasks.${index}.target`, `tasks.${index}.template`, `tasks.${index}.executor`, `tasks.${index}.reviewer`])">{{ label(task.code) }}</a-checkbox></td>
           <td><a-form-item :field="`tasks.${index}.target`" hide-label :hide-asterisk="true" :rules="task.enabled ? required(t('taskExecution.date')) : []"><a-date-picker allow-clear v-model="task.target" :aria-label="`${label(task.code)} ${t('taskExecution.date')}`" :aria-required="task.enabled" :disabled="!task.enabled" /></a-form-item></td>
           <td v-for="personField in (['executor', 'reviewer'] as const)" :key="personField"><a-form-item :field="`tasks.${index}.${personField}`" hide-label :hide-asterisk="true" :rules="task.enabled ? required(t(`projects.${personField}`)) : []"><a-select v-model="task[personField]" allow-search allow-clear :aria-label="`${label(task.code)} ${t(`projects.${personField}`)}`" :aria-required="task.enabled" :disabled="!task.enabled" :placeholder="t('taskExecution.select')"><a-option v-for="person in personOptions" :key="person" :value="person">{{ person }}</a-option></a-select></a-form-item></td>
-          <td><a-form-item v-if="task.code === 'vehicle'" :field="`tasks.${index}.template`" hide-label :hide-asterisk="true" :rules="task.enabled ? required(t('executionTable.template')) : []"><a-select allow-clear v-model="task.template" :aria-label="`${label(task.code)} ${t('executionTable.template')}`" :aria-required="task.enabled" :disabled="!task.enabled" :placeholder="t('taskExecution.select')"><a-option v-for="n in 3" :key="n" :value="`${task.code}-TPL-${n}`">{{ `${task.code}-TPL-${n}` }}</a-option></a-select></a-form-item><span v-else>- -</span></td>
+          <td><a-form-item v-if="task.code === 'vehicle'" :field="`tasks.${index}.template`" hide-label :hide-asterisk="true" :rules="task.enabled ? required(t('executionTable.template')) : []"><a-select allow-clear v-model="task.template" :aria-label="`${label(task.code)} ${t('executionTable.template')}`" :aria-required="task.enabled" :disabled="!task.enabled" :placeholder="t('taskExecution.select')"><a-option v-for="template in vehicleTemplates" :key="template.id" :value="template.id">{{ template.name }} · {{ template.version }}</a-option></a-select></a-form-item><span v-else>- -</span></td>
         </tr>
       </tbody></table></div>
     </section>
   </a-form>
-<template #footer><a-space class="execution-footer"><a-button class="app-btn-neutral" :disabled="busy" @click="requestClose">{{ t('taskExecution.cancel') }}</a-button><a-button :loading="busy" @click="save(false)">{{ t('taskExecution.draft') }}</a-button><a-button type="primary" :loading="busy" @click="save(true)">{{ t('taskExecution.submit') }}</a-button></a-space></template>
+<template #footer><a-space class="execution-footer"><a-button class="app-btn-neutral" :disabled="busy" @click="requestClose">{{ t('taskExecution.cancel') }}</a-button><a-button class="app-btn-neutral" :loading="busy" @click="save(false)">{{ t('taskExecution.draft') }}</a-button><a-button type="primary" :loading="busy" @click="save(true)">{{ t('taskExecution.submit') }}</a-button></a-space></template>
 </a-drawer>
 <ConfirmDialog :visible="leaveVisible" unsaved :title="t('projects.taskCreate.unsaved')" @update:visible="leave(false)" @confirm="leave(true)" />
 </template>

@@ -1,7 +1,7 @@
 import type { Component } from 'vue';
 import {
   IconDashboard, IconCalendar, IconCheckSquare, IconArchive, IconLayout, IconTags,
-  IconUnorderedList,
+  IconUnorderedList, IconFile,
 } from '@arco-design/web-vue/es/icon';
 
 export interface NavigationChild {
@@ -27,7 +27,7 @@ export interface NavigationItem {
  * 工作台   → IconDashboard       跨模块指标、图表与待办的聚合总览
  * 任务管理 → IconCalendar        项目以立项 / 开始 / 结束 / 实际完成日期与任务节点驱动
  * 分项管理 → IconUnorderedList   项目下逐条拆分的法规 / 任务分项清单
- * 任务执行 → IconCheckSquare     车型配置 / 技术资料 / 测试记录 / 证书 / 报告的执行与完成状态
+ * 任务执行 → IconCheckSquare     车型配置 / 技术资料 / 测试记录 / 报告 / 证书的执行与完成状态
  * 项目归档 → IconArchive         交付物目录的归档留存
  * 模版管理 → IconLayout          定义字段结构与格式的模板，以及其使用记录
  * 标签管理 → IconTags            标签分类与打标
@@ -40,11 +40,12 @@ export const navigationItems: NavigationItem[] = [
     { name: 'vehicle', path: '/tasks/vehicle', labelKey: 'vehicle.title' },
     { name: 'technical', path: '/tasks/technical', labelKey: 'tech.title' },
     { name: 'testing', path: '/tasks/testing', labelKey: 'testing.title' },
-    { name: 'certificates', path: '/tasks/certificates', labelKey: 'cert.title' },
     { name: 'reports', path: '/tasks/reports', labelKey: 'reports.title' },
+    { name: 'certificates', path: '/tasks/certificates', labelKey: 'cert.title' },
   ] },
   { name: 'archive', path: '/archive', labelKey: 'archive.title', icon: IconArchive },
   { name: 'templates', path: '/templates', labelKey: 'templates.title', icon: IconLayout, children: [{ name: 'template-config', path: '/templates/configuration', labelKey: 'templates.config' }, { name: 'template-usage', path: '/templates/usage', labelKey: 'templates.usage' }] },
+  { name: 'certificate-library', path: '/certificate-library', labelKey: 'certificateLibrary.title', icon: IconFile },
   { name: 'tags', path: '/tags', labelKey: 'tags.title', icon: IconTags },
 ];
 
