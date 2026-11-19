@@ -14,6 +14,7 @@ export interface LibraryEvent {
   comment?: string;
 }
 export interface LibraryEntry extends CertificateEntry {
+  name?: string;
   regulationName?: string;
 }
 

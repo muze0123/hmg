@@ -11,7 +11,7 @@
 
 export type TaskKind = 'import' | 'download';
 
-export type TaskModuleKey = 'account' | 'grant' | 'audit' | 'message' | 'system' | 'sections' | 'vehicle' | 'testing' | 'reports' | 'certificates' | 'technical' | 'templates' | 'archive';
+export type TaskModuleKey = 'account' | 'grant' | 'audit' | 'message' | 'system' | 'sections' | 'vehicle' | 'testing' | 'reports' | 'certificates' | 'technical' | 'templates' | 'archive' | 'tags';
 
 export type ImportTaskStatus = 'processing' | 'success' | 'partial_fail' | 'fail';
 
@@ -51,7 +51,7 @@ export interface DownloadTaskRecord {
   fileName?: string;
 }
 
-export const TASK_MODULE_KEYS: TaskModuleKey[] = ['account', 'grant', 'audit', 'message', 'system', 'sections', 'vehicle', 'testing', 'reports', 'certificates', 'technical', 'templates', 'archive'];
+export const TASK_MODULE_KEYS: TaskModuleKey[] = ['account', 'grant', 'audit', 'message', 'system', 'sections', 'vehicle', 'testing', 'reports', 'certificates', 'technical', 'templates', 'archive', 'tags'];
 
 export function createImportTaskRecords(): ImportTaskRecord[] {
   return [

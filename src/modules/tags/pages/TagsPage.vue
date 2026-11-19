@@ -3,13 +3,14 @@ import { computed, reactive, ref } from 'vue';
 import { useI18n } from 'vue-i18n';
 import { Message, type TableColumnData } from '@arco-design/web-vue';
 import {
-  IconFilter, IconPlus, IconRefresh, IconSearch, IconSettings,
+  IconDownload, IconFilter, IconPlus, IconRefresh, IconSearch, IconSettings,
 } from '@arco-design/web-vue/es/icon';
 import AppFieldLabel from '../../../design/components/AppFieldLabel.vue';
 import AppFormLayout from '../../../design/components/AppFormLayout.vue';
 import AppPagination from '../../../design/components/AppPagination.vue';
 import ConfirmDialog from '../../../shared/components/ConfirmDialog.vue';
 import ColumnSettingsPopover, { type ColumnSettingsItem } from '../../../shared/components/ColumnSettingsPopover.vue';
+import { useTaskCenterStore } from '../../task-center/stores/taskCenter';
 import { MOCK_CURRENT_USER } from '../../projects/data/projects';
 
 /**
@@ -24,13 +25,13 @@ const { t, locale } = useI18n();
    色值只在 src/design/tokens.project.json 定义（亮/暗各一套），页面只引用语义变量。 */
 import { COLOR_CODES, type ColorCode, type Tag, tagRecords as rows } from '../data/tags';
 const DEFAULT_COLOR: ColorCode = 'blue';
-const creatorOptions = computed(() => [...new Set(rows.value.map(row => row.creator))]);
+function personOptions(key: FieldKey) { return [...new Set(rows.value.map(row => row[key]).filter((value): value is string => Boolean(value)))]; }
 
 /* ---------------------------------------------- 业务字段全集：筛选、表格、列设置共用 */
-const FIELD_KEYS = ['name', 'description', 'creator', 'date'] as const;
+const FIELD_KEYS = ['name', 'description', 'creator', 'date', 'updater', 'updatedAt'] as const;
 type FieldKey = (typeof FIELD_KEYS)[number];
-const SELECT_KEYS: readonly FieldKey[] = ['creator'];
-const DATE_KEYS: readonly FieldKey[] = ['date'];
+const SELECT_KEYS: readonly FieldKey[] = ['creator', 'updater'];
+const DATE_KEYS: readonly FieldKey[] = ['date', 'updatedAt'];
 function fieldLabel(key: FieldKey): string { return t(`tags.${key}`); }
 
 const page = ref(1);
@@ -38,7 +39,7 @@ const pageSize = ref(10);
 
 /* ---------------------------------------------- 筛选条件（Filter strip packing）
    4 个可选查询字段；首项「标签名称」锁定可见，隐藏字段同时清掉草稿与已应用条件。 */
-const defaultFilterSettings = FIELD_KEYS.map((key, index) => ({ key, visible: true, disabled: index === 0 }));
+const defaultFilterSettings = FIELD_KEYS.map((key, index) => ({ key, visible: index < 4, disabled: index === 0 }));
 const filterSettings = ref(defaultFilterSettings.map(setting => ({ ...setting })));
 const filterSettingsOpen = ref(false);
 const visibleFilterKeys = computed<FieldKey[]>(() => filterSettings.value.filter(setting => setting.visible).map(setting => setting.key));
@@ -67,9 +68,9 @@ const hasApplied = computed(() => FIELD_KEYS.some(key => Boolean(applied.value[k
 
 /* ---------------------------------------------- 列设置（List settings popover）
    4 个业务列，首列「标签名称」锁定可见；操作列固定末列、不进弹层。 */
-const COLUMN_WIDTHS: Record<FieldKey, number> = { name: 200, description: 360, creator: 140, date: 180 };
+const COLUMN_WIDTHS: Record<FieldKey, number> = { name: 200, description: 360, creator: 140, date: 180, updater: 140, updatedAt: 200 };
 const ACTION_WIDTH = 170;
-const defaultColumnSettings = FIELD_KEYS.map((key, index) => ({ key, visible: true, disabled: index === 0 }));
+const defaultColumnSettings = FIELD_KEYS.map((key, index) => ({ key, visible: index < 4, disabled: index === 0 }));
 const columnSettings = ref(defaultColumnSettings.map(setting => ({ ...setting })));
 const columnSettingsOpen = ref(false);
 const visibleColumnKeys = computed<FieldKey[]>(() => columnSettings.value.filter(setting => setting.visible).map(setting => setting.key));
@@ -165,6 +166,8 @@ function save() {
   if (error.value) { nameInput.value?.focus(); return; }
   const record: Tag = {
     ...form,
+    updater: MOCK_CURRENT_USER.name,
+    updatedAt: new Date().toLocaleString('sv-SE'),
     name,
     id: form.id || crypto.randomUUID(),
     creator: form.creator || MOCK_CURRENT_USER.name,
@@ -179,6 +182,36 @@ function save() {
 function handleDialogOk() {
   if (dialogMode.value === 'view') { dialogOpen.value = false; return; }
   save();
+}
+
+const taskCenter = useTaskCenterStore();
+const exportOpen = ref(false);
+const exporting = ref(false);
+function requestExport() {
+  if (!resultRows.value.length) { Message.info(t('tags.exportEmpty')); return; }
+  exportOpen.value = true;
+}
+async function exportRows() {
+  if (exporting.value) return;
+  exporting.value = true;
+  const keys = [...visibleColumnKeys.value];
+  const records = resultRows.value.map(row => ({ ...row }));
+  try {
+    const { default: ExcelJS } = await import('exceljs');
+    const book = new ExcelJS.Workbook();
+    const title = t('tags.title');
+    const sheet = book.addWorksheet(title);
+    sheet.addRow(keys.map(fieldLabel));
+    sheet.columns = keys.map(() => ({ width: 24 }));
+    for (const row of records) sheet.addRow(keys.map(key => row[key] || '—'));
+    const blob = new Blob([await book.xlsx.writeBuffer() as BlobPart], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+    const now = new Date();
+    taskCenter.addDownloadTask({ id: `dl-${crypto.randomUUID()}`, module: 'tags', fileStamp: now.toISOString().replace(/\D/g, '').slice(0, 14), operator: MOCK_CURRENT_USER.name, time: now.toLocaleString('sv-SE'), status: 'success', progress: 100, fileUrl: URL.createObjectURL(blob), fileName: `${title}_${now.toLocaleDateString('en-CA')}.xlsx` });
+    exportOpen.value = false;
+    Message.success(t('executionList.exportSuccess'));
+    taskCenter.open('download');
+  } catch { Message.error(t('sections.exportFailed')); }
+  finally { exporting.value = false; }
 }
 
 /* ---------------------------------------------- 删除：直显操作 + 二次确认
@@ -213,7 +246,7 @@ function confirmDelete() {
           :aria-label="fieldLabel(key)"
           allow-clear
         >
-          <a-option v-for="name in creatorOptions" :key="name" :value="name">{{ name }}</a-option>
+          <a-option v-for="name in personOptions(key)" :key="name" :value="name">{{ name }}</a-option>
         </a-select>
         <a-date-picker
           v-else-if="DATE_KEYS.includes(key)"
@@ -259,6 +292,7 @@ function confirmDelete() {
       <div class="list-toolbar">
         <div class="list-toolbar__left">
           <a-button type="primary" @click="openDialog('create')"><template #icon><IconPlus /></template>{{ t('tags.new') }}</a-button>
+          <a-button class="app-btn-neutral" :loading="exporting" @click="requestExport"><template #icon><IconDownload /></template>{{ t('tags.export') }}</a-button>
         </div>
         <div class="list-toolbar__right">
           <ColumnSettingsPopover
@@ -374,6 +408,7 @@ function confirmDelete() {
       </AppFormLayout>
     </a-modal>
 
+    <ConfirmDialog v-model:visible="exportOpen" icon="info" :title="t('sections.exportNotice.title')" :description="[t('tags.exportScope'), t('sections.exportNotice.line2')]" :ok-text="t('sections.exportNotice.confirm')" :ok-loading="exporting" :cancel-disabled="exporting" :dismissible="!exporting" @confirm="exportRows" />
     <ConfirmDialog
       :visible="deleteOpen"
       icon="warning"

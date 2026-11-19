@@ -1,7 +1,7 @@
 {
   "version": "1.0.0",
   "peers": [
-    "../OpenData",
+    "../../OpenData/OpenData",
     "../../功能数据安全合规自评/功能数据安全合规自评"
   ],
   "files": [

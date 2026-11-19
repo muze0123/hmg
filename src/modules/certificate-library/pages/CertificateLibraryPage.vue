@@ -16,14 +16,17 @@ import { projects, MOCK_CURRENT_USER } from '../../projects/data/projects';
 import { reports } from '../../reports/data/reports';
 import { testTasks } from '../../testing/data/testing';
 import { technicalTasks } from '../../technical/data/technical';
-import { libraryRecords as rows, libraryPerspective as perspective, LIBRARY_STATUSES, appendLibraryEvent, libraryTimeline, type LibraryRecord, type LibraryStatus } from '../data/records';
+import { libraryRecords as rows, libraryPerspective as perspective, LIBRARY_STATUSES, appendLibraryEvent, libraryTimeline, type LibraryRecord, type LibraryEntry, type LibraryStatus } from '../data/records';
 import type { CertificateEntry } from '../../certificates/data/certificates';
 const { t, locale } = useI18n();
 const route = useRoute(); const router = useRouter(); const base = '/certificate-library';
-const filters = ref({ number: '', name: '', project: '', status: '' });
+const emptyFilters = () => ({ number: '', name: '', project: '', taskName: '', regulation: '', regulationName: '', issuer: '', agency: '', issued: '', expires: '', status: '' });
+const filters = ref(emptyFilters());
 const applied = ref({ ...filters.value }); const page = ref(1); const pageSize = ref(10);
-const keys = ['number', 'name', 'project', 'status'] as const;
-const entryKeys = ['number', 'issuer', 'agency', 'issued', 'expires'] as const;
+const keys = ['number', 'name', 'project', 'taskName', 'regulation', 'regulationName', 'issuer', 'agency', 'issued', 'expires', 'status'] as const;
+function listLabel(key: string) { return label(key === 'project' ? 'relatedTask' : key === 'status' ? 'certificateStatus' : key); }
+const entryKeys = ['number', 'name', 'issuer', 'agency', 'issued', 'expires'] as const;
+const taskInfoKeys = ['id', 'name', 'brand', 'series', 'model', 'priority', 'owner', 'createdAt', 'deadline'] as const;
 function label(key: string) { return t(`certificateLibrary.${key}`); }
 function statusLabel(code: string) { return t(`certificateLibrary.statuses.${code}`); }
 // Filter and column settings are independent; hiding a filter clears both draft and applied values.
@@ -31,32 +34,34 @@ const filterDefaults = keys.map((key, index) => ({ key, visible: true, disabled:
 const filterSettings = ref(filterDefaults.map(item => ({ ...item })));
 const filterOpen = ref(false);
 const visibleFilters = computed(() => filterSettings.value.filter(item => item.visible).map(item => item.key));
-const filterItems = computed<ColumnSettingsItem[]>(() => filterSettings.value.map(item => ({ ...item, label: label(item.key) })));
-const defaultFilterItems = computed<ColumnSettingsItem[]>(() => filterDefaults.map(item => ({ ...item, label: label(item.key) })));
+const filterItems = computed<ColumnSettingsItem[]>(() => filterSettings.value.map(item => ({ ...item, label: listLabel(item.key) })));
+const defaultFilterItems = computed<ColumnSettingsItem[]>(() => filterDefaults.map(item => ({ ...item, label: listLabel(item.key) })));
 function changeFilters(items: ColumnSettingsItem[]) {
   filterSettings.value = items.map(item => ({ key: item.key as typeof keys[number], visible: item.visible, disabled: item.key === keys[0] }));
   for (const key of keys) if (!visibleFilters.value.includes(key)) { filters.value[key] = ''; applied.value[key] = ''; }
   page.value = 1;
 }
-const fieldKeys = ['id', 'name', 'project', 'regulation', 'number', 'issuer', 'agency', 'issued', 'expires', 'status'] as const;
+const fieldKeys = keys;
 type FieldKey = typeof fieldKeys[number];
-const widths: Record<FieldKey, number> = { id: 140, name: 200, project: 180, regulation: 180, number: 200, issuer: 180, agency: 180, issued: 160, expires: 160, status: 140 };
+const widths: Record<FieldKey, number> = { number: 200, name: 200, project: 180, taskName: 220, regulation: 180, regulationName: 220, issuer: 180, agency: 180, issued: 160, expires: 160, status: 140 };
 const columnDefaults = fieldKeys.map((key, index) => ({ key, visible: true, disabled: index === 0 }));
 const columnSettings = ref(columnDefaults.map(item => ({ ...item })));
 const columnsOpen = ref(false);
 const visibleFields = computed(() => columnSettings.value.filter(item => item.visible).map(item => item.key));
-const columnItems = computed<ColumnSettingsItem[]>(() => columnSettings.value.map(item => ({ ...item, label: label(item.key) })));
-const defaultColumnItems = computed<ColumnSettingsItem[]>(() => columnDefaults.map(item => ({ ...item, label: label(item.key) })));
+const columnItems = computed<ColumnSettingsItem[]>(() => columnSettings.value.map(item => ({ ...item, label: listLabel(item.key) })));
+const defaultColumnItems = computed<ColumnSettingsItem[]>(() => columnDefaults.map(item => ({ ...item, label: listLabel(item.key) })));
 const sortField = ref<FieldKey | ''>('');
 const sortDirection = ref<'' | 'ascend' | 'descend'>('');
 function changeColumns(items: ColumnSettingsItem[]) {
-  columnSettings.value = items.map(item => ({ key: item.key as FieldKey, visible: item.visible, disabled: item.key === 'id' }));
+  columnSettings.value = items.map(item => ({ key: item.key as FieldKey, visible: item.visible, disabled: item.key === fieldKeys[0] }));
   if (sortField.value && !visibleFields.value.includes(sortField.value)) { sortField.value = ''; sortDirection.value = ''; }
   page.value = 1;
 }
 function cellText(row: LibraryRecord, key: FieldKey): string {
   if (key === 'status') return statusLabel(row.status);
-  if (key === 'id' || key === 'name' || key === 'project') return row[key];
+  if (key === 'taskName') return projects.value.find(project => project.id === row.project)?.name || '';
+  if (key === 'name') return row.entries.map(entry => entry.name || row.name).filter(Boolean).join('、');
+  if (key === 'project') return row.project;
   return row.entries.map(entry => entry[key]).filter(Boolean).join('、');
 }
 const collator = computed(() => new Intl.Collator(locale.value, { numeric: true, sensitivity: 'base' }));
@@ -72,16 +77,22 @@ function handleSort(key: unknown, direction: unknown) {
   page.value = 1;
 }
 const results = computed(() => {
-  const list = rows.value.filter(row => (!applied.value.number || row.entries.some(e => e.number.toLowerCase().includes(applied.value.number.toLowerCase()))) && row.name.toLowerCase().includes(applied.value.name.toLowerCase()) && (!applied.value.project || row.project === applied.value.project) && (!applied.value.status || row.status === applied.value.status));
+  const list = rows.value.filter(row => keys.every(key => {
+    const value = applied.value[key];
+    if (!value) return true;
+    if (key === 'status' || key === 'project') return row[key] === value;
+    if (key === 'issued' || key === 'expires') return row.entries.some(entry => entry[key] === value);
+    return cellText(row, key).toLocaleLowerCase().includes(value.trim().toLocaleLowerCase());
+  }));
   return sortField.value && sortDirection.value ? [...list].sort((a, b) => compareRows(a, b, sortField.value as FieldKey, sortDirection.value as 'ascend' | 'descend')) : list;
 });
 const visible = computed(() => results.value.slice((page.value - 1) * pageSize.value, page.value * pageSize.value));
 function search() { applied.value = { ...filters.value }; page.value = 1; }
-function reset() { filters.value = { number: '', name: '', project: '', status: '' }; search(); }
+function reset() { filters.value = emptyFilters(); search(); }
 const horizontalWidth = computed(() => visibleFields.value.reduce((sum, key) => sum + widths[key], 200));
 const columns = computed<TableColumnData[]>(() => [
   ...visibleFields.value.map((key): TableColumnData => ({
-    title: label(key), dataIndex: key, slotName: 'field', width: widths[key], fixed: key === 'id' ? 'left' : undefined,
+    title: listLabel(key), dataIndex: key, slotName: 'field', width: widths[key], fixed: key === 'number' ? 'left' : undefined,
     sortable: { sortDirections: ['ascend', 'descend'], sortOrder: sortField.value === key ? sortDirection.value : '', sorter: (a, b, extra) => compareRows(a as unknown as LibraryRecord, b as unknown as LibraryRecord, key, extra.direction) },
   })),
   { title: label('actions'), dataIndex: 'actions', slotName: 'actions', width: 200, fixed: 'right' },
@@ -133,6 +144,7 @@ const regulationRows = computed(() => {
   const project = draft.value.project;
   return draft.value.entries.map((entry, index) => ({
     ...entry,
+    name: entry.name ?? draft.value!.name,
     key: `${entry.regulation}-${entry.number}-${index}`,
     regulationName: entry.regulationName || rows.value.flatMap(row => row.entries).find(row => row.regulation === entry.regulation && row.regulationName)?.regulationName || '—',
     technical: technicalTasks.filter(task => task.project === project && task.regulation === entry.regulation),
@@ -144,6 +156,7 @@ const regulationColumns = computed<TableColumnData[]>(() => [
   { title: label('regulation'), dataIndex: 'regulation', width: 180 },
   { title: label('regulationName'), dataIndex: 'regulationName', width: 220 },
   { title: label('number'), dataIndex: 'number', width: 200 },
+  { title: label('name'), dataIndex: 'name', width: 220 },
   { title: label('technical'), slotName: 'technical', width: 180 },
   { title: label('testing'), slotName: 'testing', width: 180 },
   { title: label('report'), slotName: 'report', width: 180 },
@@ -153,11 +166,17 @@ const regulationColumns = computed<TableColumnData[]>(() => [
   { title: label('expires'), dataIndex: 'expires', width: 160 },
   { title: label('certificateFile'), slotName: 'file', width: 220 },
 ]);
+const editColumns = computed<TableColumnData[]>(() => [
+  { title: label('regulation'), dataIndex: 'regulation', width: 180 },
+  { title: label('regulationName'), dataIndex: 'regulationName', width: 220, render: ({ record }) => record.regulationName || '—' },
+  ...entryKeys.map(key => ({ title: label(key), dataIndex: key, slotName: key, titleSlotName: `${key}Title`, width: key === 'issued' || key === 'expires' ? 180 : 220 })),
+  { title: label('certificateFile'), slotName: 'upload', titleSlotName: 'uploadTitle', width: 300 },
+]);
 function eventLabel(action: string) { return t(`certificateLibrary.events.${action}`); }
 function state() { return JSON.stringify({ draft: draft.value, files: draft.value?.entries.map(e => e.file ? [e.file.name, e.file.size, e.file.lastModified] : null), opinion: opinion.value }); }
 watch(() => route.fullPath, () => {
   const row = current.value;
-  draft.value = row ? { ...row, entries: row.entries.map(e => ({ ...e })), history: [...row.history], events: row.events?.map(event => ({ ...event })) } : route.params.id === 'new' ? { id: `CL-${Date.now()}`, name: '', project: '', status: 'submitting', entries: [], history: [], events: [] } : undefined;
+  draft.value = row ? { ...row, entries: row.entries.map(e => ({ ...e, name: e.name ?? row.name })), history: [...row.history], events: row.events?.map(event => ({ ...event })) } : route.params.id === 'new' ? { id: `CL-${Date.now()}`, name: '', project: '', status: 'submitting', entries: [], history: [], events: [] } : undefined;
   opinion.value = ''; errors.value = []; snapshot.value = state();
 }, { immediate: true });
 const confirm = ref(false); const confirmTitle = ref(''); const unsaved = ref(false); let pending: () => void = () => {};
@@ -166,28 +185,46 @@ function guard() { if (state() === snapshot.value) return true; return new Promi
 onBeforeRouteLeave(guard); onBeforeRouteUpdate(guard);
 function selectProject() {
   if (!draft.value) return;
-  draft.value.entries = [...new Set(technicalTasks.filter(task => task.project === draft.value!.project).map(task => task.regulation))].map(regulation => ({ regulation, number: '', issuer: '', agency: '', issued: '', expires: '', file: null }));
+  draft.value.entries = [...new Set(technicalTasks.filter(task => task.project === draft.value!.project).map(task => task.regulation))].map(regulation => ({ regulation, regulationName: rows.value.flatMap(row => row.entries).find(entry => entry.regulation === regulation)?.regulationName || '', number: '', name: '', issuer: '', agency: '', issued: '', expires: '', file: null }));
+}
+function invalidEntryField(entry: LibraryEntry, submit: boolean): string {
+  for (const key of ['number', 'name', 'issuer', 'agency'] as const) {
+    if ((entry[key] || '').length > 50 || (submit && !entry[key]?.trim())) return key;
+  }
+  if (submit && !entry.issued) return 'issued';
+  if (entry.expires && (!entry.issued || entry.expires < entry.issued)) return 'expires';
+  if (submit && !entry.file) return 'certificateFile';
+  return '';
 }
 function save(submit: boolean) {
   if (busy.value || !editing.value || !draft.value) return;
   const row = draft.value; errors.value = [];
-  if (!row.project || !row.name.trim() || !row.entries.length) errors.value.push(label('required'));
-  const invalid = row.entries.findIndex(e => (submit && (!e.number.trim() || !e.issuer.trim() || !e.agency.trim() || !e.issued || !e.file)) || (!!e.expires && (!e.issued || e.expires < e.issued)));
+  if (!row.project || !row.entries.length) errors.value.push(label('required'));
+  const invalid = row.entries.findIndex(entry => invalidEntryField(entry, submit));
   if (invalid >= 0) errors.value.push(label('entryRequired'));
   const numbers = row.entries.map(e => e.number.trim()).filter(Boolean);
   if (new Set(numbers).size !== numbers.length || rows.value.some(r => r.id !== row.id && r.entries.some(e => numbers.includes(e.number)))) errors.value.push(label('duplicate'));
-  if (errors.value.length) { requestAnimationFrame(() => document.querySelector<HTMLElement>(invalid >= 0 ? `.entry-${invalid} input` : '.editor input')?.focus()); return; }
+  if (errors.value.length) {
+    requestAnimationFrame(() => {
+      const field = invalid >= 0 ? invalidEntryField(row.entries[invalid]!, submit) : '';
+      const control = field ? document.querySelector<HTMLElement>(`.certificate-edit-table [aria-label="${label(field)} ${invalid + 1}"]`) : document.querySelector<HTMLElement>('.editor input');
+      control?.scrollIntoView({ block: 'center', inline: 'center' }); control?.focus();
+    });
+    return;
+  }
   busy.value = true;
   if (!current.value) appendLibraryEvent(row, 'create', MOCK_CURRENT_USER.name);
   appendLibraryEvent(row, submit ? 'submit' : 'draft', MOCK_CURRENT_USER.name);
   row.status = submit ? 'reviewing' : 'submitting';
-  const saved = { ...row, name: row.name.trim(), entries: row.entries.map(e => ({ ...e, number: e.number.trim() })), history: [...row.history] };
+  row.name = row.entries.map(entry => entry.name?.trim()).filter(Boolean).join('、');
+  const saved = { ...row, name: row.name, entries: row.entries.map(e => ({ ...e, number: e.number.trim(), name: e.name?.trim(), issuer: e.issuer.trim(), agency: e.agency.trim() })), history: [...row.history] };
   const index = rows.value.findIndex(r => r.id === row.id); if (index < 0) rows.value.unshift(saved); else rows.value[index] = saved;
   snapshot.value = state(); busy.value = false; Message.success(label(submit ? 'submitted' : 'saved')); void router.push(base);
 }
+function chooseFile(index: number) { document.getElementById(`certificate-upload-${index}`)?.click(); }
 function upload(event: Event, entry: CertificateEntry) {
   const input = event.target as HTMLInputElement; const file = input.files?.[0];
-  if (file && (file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf')) && file.size <= 20 * 1024 * 1024) entry.file = file;
+  if (file && (file.name.toLowerCase().endsWith('.pdf') && (!file.type || file.type === 'application/pdf')) && file.size <= 20 * 1024 * 1024) entry.file = file;
   else if (file) Message.error(label('fileError')); input.value = '';
 }
 function download(entry: CertificateEntry) { if (!entry.file) return; downloadBlob(entry.file, entry.file.name); }
@@ -206,8 +243,8 @@ function review(approved: boolean) {
 const transferOpen = ref(false); const transferMode = ref<'import' | 'export'>('export'); const transferFile = ref<File>(); const transferError = ref('');
 const transferKeys = ['id', 'name', 'project', 'regulation', 'number', 'issuer', 'agency', 'issued', 'expires', 'status'] as const;
 async function workbookExport(template = false) {
-  const workbook = new ExcelJS.Workbook(); const sheet = workbook.addWorksheet('Certificates'); sheet.addRow([...transferKeys]);
-  if (!template) for (const row of results.value) for (const entry of row.entries) sheet.addRow(transferKeys.map(key => key in entry ? entry[key as keyof CertificateEntry] : row[key as 'id' | 'name' | 'project' | 'status']));
+  const workbook = new ExcelJS.Workbook(); const sheet = workbook.addWorksheet('Certificates'); sheet.addRow(template ? [...transferKeys] : visibleFields.value.map(listLabel));
+  if (!template) for (const row of results.value) sheet.addRow(visibleFields.value.map(key => cellText(row, key)));
   const bytes = await workbook.xlsx.writeBuffer(); downloadBlob(new Blob([bytes], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }), template ? 'certificate-template.xlsx' : 'certificates.xlsx');
 }
 async function transfer() {
@@ -241,10 +278,11 @@ function openTransfer(mode: 'import' | 'export') { transferMode.value = mode; tr
     <template v-if="!route.params.id">
       <form class="filters app-filter-strip" @submit.prevent="search">
         <div v-for="key in visibleFilters" :key="key" class="app-filter-unit">
-          <AppFieldLabel :text="label(key)" :for="`certificate-filter-${key}`" as="label" context="filter" />
-          <a-select v-if="key === 'project'" v-model="filters.project" class="app-filter-control" allow-clear :aria-label="label(key)" :placeholder="label('all')"><a-option v-for="p in projects" :key="p.id" :value="p.id">{{ p.id }}</a-option></a-select>
-          <a-select v-else-if="key === 'status'" v-model="filters.status" class="app-filter-control" allow-clear :aria-label="label(key)" :placeholder="label('all')"><a-option v-for="status in LIBRARY_STATUSES" :key="status" :value="status">{{ statusLabel(status) }}</a-option></a-select>
-          <a-input v-else v-model="filters[key]" class="app-filter-control" allow-clear :placeholder="label(key === 'number' ? 'enterNumber' : 'enterName')" :input-attrs="{ id: `certificate-filter-${key}`, 'aria-label': label(key) }" />
+          <AppFieldLabel :text="listLabel(key)" :for="`certificate-filter-${key}`" as="label" context="filter" />
+          <a-select v-if="key === 'project'" v-model="filters.project" class="app-filter-control" allow-clear :aria-label="listLabel(key)" :placeholder="label('all')"><a-option v-for="p in projects" :key="p.id" :value="p.id">{{ p.id }}</a-option></a-select>
+          <a-select v-else-if="key === 'status'" v-model="filters.status" class="app-filter-control" allow-clear :aria-label="listLabel(key)" :placeholder="label('all')"><a-option v-for="status in LIBRARY_STATUSES" :key="status" :value="status">{{ statusLabel(status) }}</a-option></a-select>
+          <a-date-picker v-else-if="key === 'issued' || key === 'expires'" :id="`certificate-filter-${key}`" v-model="filters[key]" class="app-filter-control" allow-clear :aria-label="listLabel(key)" :placeholder="label('selectDate')" />
+          <a-input v-else v-model="filters[key]" class="app-filter-control" allow-clear :placeholder="t('certificateLibrary.enterField', { field: listLabel(key) })" :input-attrs="{ id: `certificate-filter-${key}`, 'aria-label': listLabel(key) }" />
         </div>
         <div class="app-filter-actions">
           <a-button type="primary" html-type="submit"><template #icon><IconSearch /></template>{{ label('search') }}</a-button>
@@ -266,7 +304,7 @@ function openTransfer(mode: 'import' | 'export') { transferMode.value = mode; tr
         </div>
         <a-table :columns="columns" :data="visible" row-key="id" :pagination="false" :bordered="false" :stripe="false" :scroll="{ x: horizontalWidth }" @sorter-change="handleSort">
           <template #field="{ record, column }">
-            <button v-if="column.dataIndex === 'id'" type="button" class="identity-link" @click="runAction('detail', record)">{{ record.id }}</button>
+            <button v-if="column.dataIndex === 'number'" type="button" class="identity-link" @click="runAction('detail', record)">{{ cellText(record, 'number') }}</button>
             <AppStatusTag v-else-if="column.dataIndex === 'status'" :label="statusLabel(record.status)" :role="statusRole(record.status)" />
             <span v-else>{{ cellText(record, column.dataIndex as FieldKey) || '—' }}</span>
           </template>
@@ -297,15 +335,16 @@ function openTransfer(mode: 'import' | 'export') { transferMode.value = mode; tr
           <template v-else>
             <a-form :model="draft" layout="vertical" class="certificate-entry">
               <a-form-item required>
-                <template #label><AppFieldLabel as="label" for="certificate-name" :text="label('name')" colon /></template>
-                <a-input id="certificate-name" v-model="draft.name" allow-clear :placeholder="t('templateEditor.inputHint', { field: label('name') })" :input-attrs="{ 'aria-label': label('name') }" />
+                <template #label><AppFieldLabel as="label" for="certificate-project" :text="label('relatedTask')" colon /></template>
+                <a-select id="certificate-project" v-model="draft.project" allow-clear allow-search :placeholder="t('templateEditor.selectHint', { field: label('relatedTask') })" :aria-label="label('relatedTask')" @change="selectProject"><a-option v-for="p in projects" :key="p.id" :value="p.id">{{ p.id }} · {{ p.name }}</a-option></a-select>
               </a-form-item>
-              <a-form-item required>
-                <template #label><AppFieldLabel as="label" for="certificate-project" :text="label('project')" colon /></template>
-                <a-select id="certificate-project" v-model="draft.project" allow-clear :placeholder="t('templateEditor.selectHint', { field: label('project') })" :aria-label="label('project')" @change="selectProject"><a-option v-for="p in projects" :key="p.id" :value="p.id">{{ p.id }} · {{ p.name }}</a-option></a-select>
-              </a-form-item>
+              <template v-if="selectedProject">
+                <a-form-item v-for="key in taskInfoKeys" :key="key">
+                  <template #label><AppFieldLabel as="label" :for="`certificate-task-${key}`" :text="t(`projects.${key}`)" colon /></template>
+                  <a-input :id="`certificate-task-${key}`" :model-value="key === 'priority' ? t(`projects.${selectedProject.priority}`) : selectedProject[key]" disabled :input-attrs="{ 'aria-label': t(`projects.${key}`) }" />
+                </a-form-item>
+              </template>
             </a-form>
-            <a-descriptions v-if="selectedProject" :column="{ xs: 1, sm: 2, lg: 3 }"><a-descriptions-item v-for="key in ['id', 'name', 'brand', 'series', 'model', 'owner', 'createdAt', 'deadline'] as const" :key="key" :label="t('projects.' + key)">{{ selectedProject[key] }}</a-descriptions-item></a-descriptions>
           </template>
         </section>
         <section class="detail-block" :aria-label="label('regulations')">
@@ -319,7 +358,7 @@ function openTransfer(mode: 'import' | 'export') { transferMode.value = mode; tr
             :pagination="false"
             :bordered="false"
             :stripe="false"
-            :scroll="{ x: 2000 }"
+            :scroll="{ x: 2220 }"
           >
             <template v-for="key in ['technical', 'testing', 'report'] as const" :key="key" #[key]="{ record }">
               <div v-if="record[key].length" class="related-records">
@@ -333,36 +372,31 @@ function openTransfer(mode: 'import' | 'export') { transferMode.value = mode; tr
             </template>
             <template #empty><a-empty :description="label('emptyRegulations')" /></template>
           </a-table>
-          <template v-else>
-            <a-empty v-if="!draft.entries.length" :description="label('selectProject')" />
-            <section v-for="(entry, index) in draft.entries" :key="entry.regulation" class="entry" :class="`entry-${index}`">
-              <h3>{{ entry.regulation }}</h3>
-              <div class="relations">
-                <AppFieldLabel :text="label('technical')" :colon="true" />
-                <router-link v-for="task in technicalTasks.filter(task => task.project === draft!.project && task.regulation === entry.regulation)" :key="task.id" :to="`/tasks/technical/${task.id}`">{{ task.id }}</router-link>
-                <AppFieldLabel :text="label('testing')" :colon="true" />
-                <router-link v-for="task in testTasks.filter(task => task.project === draft!.project && task.regulation === entry.regulation)" :key="task.id" :to="`/tasks/testing/${task.id}`">{{ task.id }}</router-link>
+          <a-table v-else class="regulations-table certificate-edit-table" :columns="editColumns" :data="draft.entries" row-key="regulation" :pagination="false" :bordered="false" :stripe="false" :scroll="{ x: 1940 }">
+            <template v-for="key in entryKeys" :key="`${key}-title`" #[`${key}Title`]>
+              <span v-if="key !== 'expires'" class="required-marker" aria-hidden="true">*</span>{{ label(key) }}
+            </template>
+            <template #uploadTitle><span class="required-marker" aria-hidden="true">*</span>{{ label('certificateFile') }}</template>
+            <template v-for="key in entryKeys" :key="key" #[key]="{ record, rowIndex }">
+              <a-date-picker v-if="key === 'issued' || key === 'expires'" v-model="record[key]" allow-clear :placeholder="label('selectDate')" :aria-label="`${label(key)} ${rowIndex + 1}`" :aria-required="key === 'issued'" />
+              <a-input v-else v-model="record[key]" :max-length="50" allow-clear :placeholder="t('templateEditor.inputHint', { field: label(key) })" :input-attrs="{ 'aria-label': `${label(key)} ${rowIndex + 1}`, 'aria-required': 'true' }" />
+            </template>
+            <template #upload="{ record, rowIndex }">
+              <div class="file-field">
+                <input :id="`certificate-upload-${rowIndex}`" type="file" accept=".pdf,application/pdf" hidden @change="upload($event, record)" />
+                <div v-if="record.file" class="uploaded-file"><a-link @click="download(record)">{{ record.file.name }}</a-link><a-button type="text" status="danger" @click="record.file = null">{{ label('removeFile') }}</a-button></div>
+                <a-tooltip v-else :content="label('fileHint')"><a-button class="app-btn-neutral" :aria-label="`${label('certificateFile')} ${rowIndex + 1}`" @click="chooseFile(rowIndex)"><template #icon><IconUpload /></template>{{ label('uploadFile') }}</a-button></a-tooltip>
               </div>
-              <a-form v-if="editing" :model="entry" layout="vertical" class="certificate-entry">
-                <a-form-item v-for="key in entryKeys" :key="key" :required="key !== 'expires'">
-                  <template #label><AppFieldLabel as="label" :for="`certificate-${index}-${key}`" :text="label(key)" colon /></template>
-                  <a-date-picker v-if="key === 'issued' || key === 'expires'" :id="`certificate-${index}-${key}`" v-model="entry[key]" allow-clear :placeholder="t('templateEditor.selectHint', { field: label(key) })" :aria-label="label(key)" />
-                  <a-input v-else :id="`certificate-${index}-${key}`" v-model="entry[key]" allow-clear :placeholder="t('templateEditor.inputHint', { field: label(key) })" :input-attrs="{ 'aria-label': label(key) }" />
-                </a-form-item>
-                <a-form-item required>
-                  <template #label><AppFieldLabel :text="label('file')" colon /></template>
-                  <div class="file-field"><input type="file" accept=".pdf" :aria-label="label('file')" @change="upload($event, entry)" /><a-link v-if="entry.file" @click="download(entry)">{{ entry.file.name }}</a-link><span v-else>{{ label('noFile') }}</span></div>
-                </a-form-item>
-              </a-form>
-            </section>
-          </template>
+            </template>
+            <template #empty><a-empty :description="label('selectProject')" /></template>
+          </a-table>
         </section>
         <section v-if="reviewing" class="detail-block" :aria-label="label('review')">
           <header class="block-header"><h2>{{ label('review') }}</h2></header>
           <a-textarea v-model="opinion" :aria-label="label('opinion')" :placeholder="label('opinion')" />
           <a-space class="review-actions"><a-button status="danger" @click="review(false)">{{ label('reject') }}</a-button><a-button type="primary" @click="review(true)">{{ label('approve') }}</a-button></a-space>
         </section>
-        <section class="detail-block" :aria-label="label('timeline')">
+        <section v-if="!editing && !reviewing" class="detail-block" :aria-label="label('timeline')">
           <header class="block-header"><h2>{{ label('timeline') }}</h2></header>
           <a-empty v-if="!timeline.length" :description="label('noTimeline')" />
           <a-timeline v-else class="processing-timeline">
@@ -447,4 +481,9 @@ h3 { font-size: var(--mt-ds-font-body); font-weight: var(--mt-ds-weight-body); }
 .relations a:focus-visible { outline: 2px solid var(--app-accent); outline-offset: 2px; }
 .relations { display: flex; flex-wrap: wrap; gap: var(--mt-ds-space-2); margin-bottom: var(--mt-ds-space-4); }
 .review-actions { margin-top: var(--mt-ds-space-4); }
+.required-marker { color: var(--app-color-danger); margin-right: var(--mt-ds-space-1); }
+.uploaded-file { display: flex; align-items: center; gap: var(--mt-ds-space-2); min-width: 0; }
+.uploaded-file :deep(.arco-link) { min-width: 0; overflow-wrap: anywhere; }
+.uploaded-file :deep(.arco-btn) { flex-shrink: 0; }
+.certificate-edit-table :deep(.arco-picker) { width: 100%; }
 </style>

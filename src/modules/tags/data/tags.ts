@@ -10,6 +10,8 @@ export interface Tag {
   color: ColorCode;
   creator: string;
   date: string;
+  updater?: string;
+  updatedAt?: string;
 }
 
 const TAG_NAMES = [
@@ -24,6 +26,8 @@ export const tagRecords = ref<Tag[]>(TAG_NAMES.map((name, index) => ({
   description: index % 3 === 0 ? `${name}相关的项目与任务标记，用于筛选与归档。` : index % 3 === 1 ? '' : `${name}专用标记`,
   color: COLOR_CODES[index % COLOR_CODES.length],
   creator: PEOPLE[index % PEOPLE.length],
+  updater: PEOPLE[(index + 1) % PEOPLE.length],
+  updatedAt: `2026-11-${String(index + 1).padStart(2, '0')} 10:00:00`,
   date: `2026-${String((index % 10) + 1).padStart(2, '0')}-${String(((index * 3) % 27) + 1).padStart(2, '0')}`,
 })));
 
