@@ -87,3 +87,7 @@ temp/
 *.tmp
 *.bak
 *.orig
+
+# HMG backend generated outputs and local development data
+backend/target/
+.hmg-data/

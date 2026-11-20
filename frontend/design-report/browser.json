@@ -1,0 +1,22 @@
+{
+  "project": "HMG",
+  "status": "failed",
+  "assertions": [
+    "1440 locale zh-CN",
+    "1440 zh-CN title geometry false",
+    "1440 zh-CN viewport overflow false",
+    "1440 zh-CN theme mapping false"
+  ],
+  "screenshots": [
+    "/Users/zhangbin/Desktop/麦唐/HMG/HMG/frontend/design-report/screenshots/1440-zh-CN-light.png"
+  ],
+  "consoleErrors": [],
+  "baselineComparisons": [
+    {
+      "name": "1440-zh-CN-light",
+      "status": "missing"
+    }
+  ],
+  "accessibility": "- banner:\n  - link \"HMG\":\n    - /url: /workbench\n    - strong: HMG\n  - button \"主题\":\n    - img\n  - button \"语言\":\n    - img\n  - button \"导入导出\":\n    - img\n  - button \"通知\":\n    - img\n  - button \"个人中心\": 张三\n- complementary \"主导航\":\n  - navigation:\n    - link \"工作台\":\n      - /url: /workbench\n      - img\n      - text: 工作台\n    - link \"任务管理\":\n      - /url: /projects\n      - img\n      - text: 任务管理\n    - link \"分项管理\":\n      - /url: /sections\n      - img\n      - text: 分项管理\n    - button \"任务执行\":\n      - img\n      - text: 任务执行\n      - img\n    - link \"项目归档\":\n      - /url: /archive\n      - img\n      - text: 项目归档\n    - button \"模版管理\":\n      - img\n      - text: 模版管理\n      - img\n    - link \"证书管理\":\n      - /url: /certificate-library\n      - img\n      - text: 证书管理\n    - link \"标签管理\":\n      - /url: /tags\n      - img\n      - text: 标签管理\n  - button \"收起侧栏\" [expanded]:\n    - img\n    - text: 收起侧栏\n- main:\n  - main:\n    - button \"切换语言\"\n    - button \"切换主题\"\n    - radio \"正常\" [checked]\n    - text: 正常\n    - radio \"空数据\"\n    - text: 空数据\n    - radio \"加载中\"\n    - text: 加载中\n    - radio \"加载失败\"\n    - text: 加载失败 关键词：\n    - textbox \"关键词\"\n    - button \"查询\"\n    - button \"重置\"\n    - region \"设计模式记录\":\n      - heading \"设计模式记录\" [level=2]\n      - status: 共 18 条\n      - button \"编辑\"\n      - table:\n        - rowgroup:\n          - row \"编号 名称\":\n            - columnheader \"编号\"\n            - columnheader \"名称\"\n        - rowgroup:\n          - row \"DS-001 Metritag 1\":\n            - cell \"DS-001\"\n            - cell \"Metritag 1\"\n          - row \"DS-002 Metritag 2\":\n            - cell \"DS-002\"\n            - cell \"Metritag 2\"\n          - row \"DS-003 Metritag 3\":\n            - cell \"DS-003\"\n            - cell \"Metritag 3\"\n          - row \"DS-004 Metritag 4\":\n            - cell \"DS-004\"\n            - cell \"Metritag 4\"\n          - row \"DS-005 Metritag 5\":\n            - cell \"DS-005\"\n            - cell \"Metritag 5\"\n      - navigation \"列表分页\":\n        - text: 共 18 条 每页条数\n        - textbox \"每页条数 5 条/页\"\n        - text: 5 条/页\n        - img\n        - button \"上一页\" [disabled]:\n          - img\n        - button \"1\"\n        - button \"2\"\n        - button \"3\"\n        - button \"4\"\n        - button \"下一页\":\n          - img\n        - text: 跳至\n        - textbox \"跳至\": \"1\"\n        - text: /4 页\n    - region \"详情\":\n      - term: 名称\n      - definition: Metritag",
+  "error": "AssertionError [ERR_ASSERTION]: Missing visual baseline 1440-zh-CN-light. Capture and review with --update-baselines\n    at check (file:///Users/zhangbin/Desktop/%E9%BA%A6%E5%94%90/HMG/HMG/frontend/scripts/design-browser.mjs:19:48)\n    at snapshot (file:///Users/zhangbin/Desktop/%E9%BA%A6%E5%94%90/HMG/HMG/frontend/scripts/design-browser.mjs:52:5)\n    at async file:///Users/zhangbin/Desktop/%E9%BA%A6%E5%94%90/HMG/HMG/frontend/scripts/design-browser.mjs:91:9"
+}

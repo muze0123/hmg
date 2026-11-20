@@ -1,0 +1,543 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "HMG task kernel",
+    "version": "0.1.0",
+    "description": "Development kernel. Production writes fail closed until platform adapters are connected."
+  },
+  "servers": [
+    {
+      "url": "http://127.0.0.1:4321"
+    }
+  ],
+  "security": [
+    {
+      "bearer": []
+    },
+    {
+      "developmentBasic": []
+    }
+  ],
+  "paths": {
+    "/api/v1/tasks": {
+      "post": {
+        "parameters": [
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 100
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/View"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Validation error"
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "404": {
+            "description": "Task not visible in this tenant"
+          },
+          "409": {
+            "description": "Business or version conflict"
+          },
+          "503": {
+            "description": "Platform adapters not connected"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Create"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/tasks/{id}": {
+      "get": {
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/View"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Validation error"
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "404": {
+            "description": "Task not visible in this tenant"
+          },
+          "409": {
+            "description": "Business or version conflict"
+          },
+          "503": {
+            "description": "Platform adapters not connected"
+          }
+        }
+      }
+    },
+    "/api/v1/tasks/{id}/nodes/{nodeId}/configure": {
+      "post": {
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "nodeId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/View"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Validation error"
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "404": {
+            "description": "Task not visible in this tenant"
+          },
+          "409": {
+            "description": "Business or version conflict"
+          },
+          "503": {
+            "description": "Platform adapters not connected"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Configure"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/tasks/{id}/nodes/{nodeId}/actions/{action}": {
+      "post": {
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "nodeId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "action",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "save",
+                "submit",
+                "approve",
+                "reject"
+              ]
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/View"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Validation error"
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "404": {
+            "description": "Task not visible in this tenant"
+          },
+          "409": {
+            "description": "Business or version conflict"
+          },
+          "503": {
+            "description": "Platform adapters not connected"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Command"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/": {
+      "get": {
+        "summary": "Authenticated service information",
+        "responses": {
+          "200": {
+            "description": "Service is running",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "service": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "const": "RUNNING"
+                    },
+                    "tasksEndpoint": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required"
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "Create": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "vehicleId": {
+            "type": "string"
+          },
+          "workflowVersion": {
+            "type": "string"
+          },
+          "reviewers": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "name",
+          "vehicleId",
+          "workflowVersion",
+          "reviewers"
+        ]
+      },
+      "Child": {
+        "type": "object",
+        "properties": {
+          "kind": {
+            "type": "string",
+            "enum": [
+              "VEHICLE",
+              "TECHNICAL",
+              "TESTING",
+              "REPORT",
+              "CERTIFICATE"
+            ]
+          },
+          "regulationId": {
+            "type": "string"
+          },
+          "templateVersionId": {
+            "type": "string"
+          },
+          "executor": {
+            "type": "string"
+          },
+          "reviewers": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "kind",
+          "executor",
+          "reviewers"
+        ]
+      },
+      "Configure": {
+        "type": "object",
+        "properties": {
+          "version": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "children": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "$ref": "#/components/schemas/Child"
+            }
+          }
+        },
+        "required": [
+          "version",
+          "children"
+        ]
+      },
+      "Command": {
+        "type": "object",
+        "properties": {
+          "version": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "values": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "comment": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "version"
+        ]
+      },
+      "History": {
+        "type": "object",
+        "properties": {
+          "nodeId": {
+            "type": "string"
+          },
+          "action": {
+            "type": "string"
+          },
+          "actor": {
+            "type": "string"
+          },
+          "comment": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "time": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "required": []
+      },
+      "Node": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "level": {
+            "enum": [
+              "MAIN",
+              "SECTION",
+              "SUBTASK"
+            ]
+          },
+          "kind": {
+            "enum": [
+              "VEHICLE",
+              "TECHNICAL",
+              "TESTING",
+              "REPORT",
+              "CERTIFICATE",
+              null
+            ]
+          },
+          "regulationId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "templateVersionId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "executor": {
+            "type": "string"
+          },
+          "reviewers": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "reviewStep": {
+            "type": "integer"
+          },
+          "state": {
+            "enum": [
+              "PENDING",
+              "ACTIVE",
+              "REVIEWING",
+              "REJECTED",
+              "COMPLETED"
+            ]
+          },
+          "valuesJson": {
+            "type": "string"
+          },
+          "children": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Node"
+            }
+          }
+        },
+        "required": []
+      },
+      "Task": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "vehicleId": {
+            "type": "string"
+          },
+          "workflowVersion": {
+            "type": "string"
+          },
+          "root": {
+            "$ref": "#/components/schemas/Node"
+          },
+          "history": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/History"
+            }
+          }
+        },
+        "required": []
+      },
+      "View": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "version": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "task": {
+            "$ref": "#/components/schemas/Task"
+          }
+        },
+        "required": [
+          "id",
+          "version",
+          "task"
+        ]
+      }
+    },
+    "securitySchemes": {
+      "bearer": {
+        "type": "http",
+        "scheme": "bearer",
+        "bearerFormat": "JWT"
+      },
+      "developmentBasic": {
+        "type": "http",
+        "scheme": "basic",
+        "description": "dev profile only"
+      }
+    }
+  }
+}
