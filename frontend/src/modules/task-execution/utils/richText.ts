@@ -1,3 +1,19 @@
+/** Same inline-image contract as OpenData's shared rich editor; no image-upload API is configured. */
+export const RICH_IMAGE_TYPES = ['image/png', 'image/jpeg', 'image/gif', 'image/webp'] as const;
+export const RICH_IMAGE_MAX_BYTES = 2 * 1024 * 1024;
+export function isRichImage(file: File): boolean {
+  return (RICH_IMAGE_TYPES as readonly string[]).includes(file.type);
+}
+export function readRichImage(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result || ''));
+    reader.onerror = () => reject(reader.error ?? new Error('Unable to read the image'));
+    reader.onabort = () => reject(new Error('Image read cancelled'));
+    reader.readAsDataURL(file);
+  });
+}
+
 /** Allowlisted HTML for execution values; persisted or pasted HTML is never trusted. */
 export function safeRichHtml(raw: string): string {
   const source = document.createElement('template');
@@ -29,4 +45,10 @@ export function safeRichHtml(raw: string): string {
 export function richHasContent(value: string): boolean {
   const host = document.createElement('div'); host.innerHTML = safeRichHtml(value);
   return !!host.textContent?.replace(/[\s\u200B-\u200D\uFEFF]/g,'') || !!host.querySelector('img[src]');
+}
+
+export function richImageCount(value: string): number {
+  const host = document.createElement('template');
+  host.innerHTML = safeRichHtml(value);
+  return host.content.querySelectorAll('img[src]').length;
 }

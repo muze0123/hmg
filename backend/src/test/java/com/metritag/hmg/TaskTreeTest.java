@@ -69,4 +69,47 @@ class TaskTreeTest {
   tree.submit(child, "executor");
   assertThatThrownBy(() -> tree.review(child, "reviewer", false, " ")).isInstanceOf(BusinessException.class);
  }
+ @Test void draftWithdrawAndVoidAreRealTransitions() {
+  TaskTree tree = tree();
+  tree.submitDraft(tree.root, "executor");
+  assertThat(tree.root.state).isEqualTo(State.SUBMITTING);
+  tree.withdraw(tree.root, "executor");
+  assertThat(tree.root.state).isEqualTo(State.WITHDRAWN);
+  tree.submitDraft(tree.root, "executor");
+  assertThat(tree.root.state).isEqualTo(State.SUBMITTING);
+  tree.voidTask(tree.root, "executor");
+  assertThat(tree.root.state).isEqualTo(State.VOIDED);
+  assertThat(tree.history).extracting(History::action).containsExactly("SUBMIT_DRAFT", "WITHDRAW", "SUBMIT_DRAFT", "VOID");
+ }
+ @Test void frontendCodesAndAggregateRuleMatchTheFrontEnd() {
+  assertThat(frontendCode(State.SUBMITTING)).isEqualTo("submitting");
+  assertThat(frontendCode(State.WITHDRAWN)).isEqualTo("withdrawn");
+  assertThat(frontendCode(State.VOIDED)).isEqualTo("voided");
+  assertThat(aggregateStatus(List.of(FrontendStatus.PENDING, FrontendStatus.PENDING))).isEqualTo(FrontendStatus.PENDING);
+  assertThat(aggregateStatus(List.of(FrontendStatus.COMPLETED, FrontendStatus.REVIEWING))).isEqualTo(FrontendStatus.ACTIVE);
+  assertThat(aggregateStatus(List.of())).isEqualTo(FrontendStatus.PENDING);
+ }
+ @Test void mainWithdrawalPausesOpenDescendantsWithoutOverwritingProgress() {
+  TaskTree tree = tree();
+  Node section = node(Level.SECTION);
+  Node filling = node(Level.SUBTASK);
+  Node reviewing = node(Level.SUBTASK); reviewing.state = State.REVIEWING;
+  reviewing.workflowInstanceId = "wf"; reviewing.approvalId = "approval"; reviewing.workflowRevision = "v1";
+  Node completed = node(Level.SUBTASK); completed.state = State.COMPLETED;
+  Node voided = node(Level.SUBTASK); voided.state = State.VOIDED;
+  section.children.addAll(List.of(filling, reviewing, completed, voided)); tree.root.children.add(section);
+  tree.root.state = State.REVIEWING;
+  tree.withdraw(tree.root, "executor");
+  assertThat(tree.root.state).isEqualTo(State.WITHDRAWN);
+  assertThat(tree.isPaused(section)).isTrue(); assertThat(tree.isPaused(filling)).isTrue();
+  assertThat(tree.isPaused(completed)).isFalse(); assertThat(tree.isPaused(voided)).isFalse();
+  assertThat(filling.state).isEqualTo(State.ACTIVE); assertThat(reviewing.state).isEqualTo(State.REVIEWING);
+  assertThatThrownBy(() -> tree.submit(filling, "executor")).isInstanceOf(BusinessException.class);
+  assertThatThrownBy(() -> tree.review(reviewing, "reviewer", true, "")).isInstanceOf(BusinessException.class);
+  assertThat(tree.matchesCallback(reviewing, "wf", "approval", "v1")).isFalse();
+  // Resubmission alone does not resume children. Execution confirmation owns this latch.
+  tree.root.state = State.ACTIVE; assertThat(tree.isPaused(filling)).isTrue();
+  tree.descendantsPaused = false; assertThat(tree.isPaused(filling)).isFalse();
+  assertThat(tree.matchesCallback(reviewing, "wf", "approval", "v1")).isTrue();
+ }
 }

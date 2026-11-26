@@ -22,3 +22,13 @@ test('finished and review tasks cannot be edited', () => {
   for (const status of ['reviewing', 'completed', 'voided']) assert.equal(EDITABLE_TASK_STATUSES.includes(status), false);
   for (const status of ['submitting', 'rejected', 'withdrawn']) assert.equal(EDITABLE_TASK_STATUSES.includes(status), true);
 });
+
+// Suspension is inherited; terminal work and stored lifecycle codes remain intact.
+import { isSuspended, effectiveTaskStatus } from '../src/shared/taskSuspension.ts';
+test('withdrawn parents pause open work and restore its original status on release', () => {
+  for (const status of ['pending', 'submitting', 'active', 'reviewing', 'rejected', 'withdrawn']) {
+    assert.equal(effectiveTaskStatus(status, true), 'paused');
+    assert.equal(effectiveTaskStatus(status, false), status);
+  }
+  for (const status of ['completed', 'voided', 'COMPLETED', 'VOIDED']) assert.equal(isSuspended(status, true), false);
+});

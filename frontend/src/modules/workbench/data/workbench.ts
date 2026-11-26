@@ -1,5 +1,5 @@
 import { computed } from 'vue';
-import { TASK_STATUSES, type TaskStatus } from '../../../shared/taskLifecycle';
+import { TASK_STATUSES, MAIN_TASK_STATUSES, type TaskStatus } from '../../../shared/taskLifecycle';
 import { projects as mainTasks, projectStatus } from '../../projects/data/projects';
 import { items as sections } from '../../sections/data/items';
 export const STATUS_CODES = TASK_STATUSES;
@@ -7,7 +7,7 @@ export type Status = TaskStatus;
 export interface Metric { code: string; value: number; tone: string }
 const tones: Record<TaskStatus, string> = { pending: 'neutral', submitting: 'neutral', active: 'primary', reviewing: 'primary', completed: 'success', rejected: 'danger', withdrawn: 'neutral', voided: 'danger' };
 const metrics = (statuses: TaskStatus[]): Metric[] => TASK_STATUSES.map(code => ({ code, value: statuses.filter(status => status === code).length, tone: tones[code] }));
-export const projects = computed(() => metrics(mainTasks.value.map(projectStatus)));
+export const projects = computed(() => metrics(mainTasks.value.map(projectStatus)).filter(row => MAIN_TASK_STATUSES.some(status => status === row.code)));
 export const tasks = computed(() => metrics(sections.map(row => row.status)));
 export const audits: Metric[] = [{code:'pending',value:2,tone:'neutral'},{code:'active',value:3,tone:'primary'},{code:'completed',value:1,tone:'success'},{code:'rejected',value:1,tone:'danger'}];
 export const materials = [{code:'technical',ready:72,pass:70},{code:'test',ready:89,pass:70},{code:'certificate',ready:30,pass:70},{code:'report',ready:12,pass:70}];

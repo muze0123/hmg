@@ -1,9 +1,10 @@
+import { taskPaused, requireTaskAvailable } from '../../projects/data/suspension';
 import { reactive } from 'vue';
 import { projects, MOCK_CURRENT_USER, type Project, type TaskHistoryEvent } from '../../projects/data/projects';
 import { TASK_STATUSES } from '../../../shared/taskLifecycle';
 import { templateRecords, type TemplateRecord } from '../../templates/data/templates';
 import { items } from '../../sections/data/items';
-import { ensureCollaboration } from '../../vehicle/data/collaboration';
+import { ensureCollaboration, reopenCollaboration } from '../../vehicle/data/collaboration';
 import { vehicleRecords } from '../../vehicle/data/vehicle';
 import type { Vehicle } from '../../vehicle/data/vehicle';
 export const STATUS_CODES = TASK_STATUSES;
@@ -115,6 +116,8 @@ export function syncTechnicalSections() {
   }
 }
 export function saveTechnicalTask(next: TechnicalTask, action: TaskHistoryEvent['action'], comment='') {
+  if(action==='reject' || action==='withdraw')reopenCollaboration(next,action==='reject'?comment:'',action==='reject');
+  requireTaskAvailable(next.project, next.status);
   const parent=projects.value.find(parent=>parent.id===next.project);
   const updated=parent?clone(parent):undefined;
   if(updated) {

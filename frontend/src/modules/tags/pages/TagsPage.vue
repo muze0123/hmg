@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, reactive, ref } from 'vue';
+import { computed, nextTick, reactive, ref } from 'vue';
 import { useI18n } from 'vue-i18n';
 import { Message, type TableColumnData } from '@arco-design/web-vue';
 import {
@@ -15,7 +15,7 @@ import { MOCK_CURRENT_USER } from '../../projects/data/projects';
 
 /**
  * 标签管理（DESIGN.md · Filter strip packing / List settings popover / Table /
- * Row action overflow / Dialog / Confirmation dialogs）。
+ * Row action overflow / Drawer / Confirmation dialogs）。
  * 列表记录是模块内 typed 数据，接入标签 API 契约后替换 rows 的数据源即可；
  * 创建人、创建日期由系统在写入时补齐，不在表单中编辑。
  */
@@ -23,14 +23,17 @@ const { t, locale } = useI18n();
 
 /* ---------------------------------------------- 标签颜色：唯一枚举源
    色值只在 src/design/tokens.project.json 定义（亮/暗各一套），页面只引用语义变量。 */
-import { COLOR_CODES, type ColorCode, type Tag, tagRecords as rows } from '../data/tags';
+import { COLOR_CODES, TAG_OWNER_OPTIONS, tagOwnerName, saveTagRecord, deleteTagRecord, type ColorCode, type Tag, tagRecords as rows } from '../data/tags';
 const DEFAULT_COLOR: ColorCode = 'blue';
-function personOptions(key: FieldKey) { return [...new Set(rows.value.map(row => row[key]).filter((value): value is string => Boolean(value)))]; }
+function personOptions(key: FieldKey) {
+  const values = [...new Set(rows.value.map(row => row[key]).filter((value): value is string => Boolean(value)))];
+  return values.map(value => ({ value, label: key === 'owner' ? tagOwnerName(value) : value }));
+}
 
 /* ---------------------------------------------- 业务字段全集：筛选、表格、列设置共用 */
-const FIELD_KEYS = ['name', 'description', 'creator', 'date', 'updater', 'updatedAt'] as const;
+const FIELD_KEYS = ['name', 'owner', 'description', 'creator', 'date', 'updater', 'updatedAt'] as const;
 type FieldKey = (typeof FIELD_KEYS)[number];
-const SELECT_KEYS: readonly FieldKey[] = ['creator', 'updater'];
+const SELECT_KEYS: readonly FieldKey[] = ['owner', 'creator', 'updater'];
 const DATE_KEYS: readonly FieldKey[] = ['date', 'updatedAt'];
 function fieldLabel(key: FieldKey): string { return t(`tags.${key}`); }
 
@@ -38,8 +41,8 @@ const page = ref(1);
 const pageSize = ref(10);
 
 /* ---------------------------------------------- 筛选条件（Filter strip packing）
-   4 个可选查询字段；首项「标签名称」锁定可见，隐藏字段同时清掉草稿与已应用条件。 */
-const defaultFilterSettings = FIELD_KEYS.map((key, index) => ({ key, visible: index < 4, disabled: index === 0 }));
+   负责人紧随标签名称；更新人和更新时间默认隐藏；首项「标签名称」锁定可见，隐藏字段同时清掉草稿与已应用条件。 */
+const defaultFilterSettings = FIELD_KEYS.map((key, index) => ({ key, visible: index < 5, disabled: index === 0 }));
 const filterSettings = ref(defaultFilterSettings.map(setting => ({ ...setting })));
 const filterSettingsOpen = ref(false);
 const visibleFilterKeys = computed<FieldKey[]>(() => filterSettings.value.filter(setting => setting.visible).map(setting => setting.key));
@@ -67,10 +70,10 @@ function onFilterSettingsChanged(next: ColumnSettingsItem[]) {
 const hasApplied = computed(() => FIELD_KEYS.some(key => Boolean(applied.value[key])));
 
 /* ---------------------------------------------- 列设置（List settings popover）
-   4 个业务列，首列「标签名称」锁定可见；操作列固定末列、不进弹层。 */
-const COLUMN_WIDTHS: Record<FieldKey, number> = { name: 200, description: 360, creator: 140, date: 180, updater: 140, updatedAt: 200 };
+   负责人紧随标签名称，首列「标签名称」锁定可见；操作列固定末列、不进弹层。 */
+const COLUMN_WIDTHS: Record<FieldKey, number> = { name: 200, owner: 160, description: 360, creator: 140, date: 180, updater: 140, updatedAt: 200 };
 const ACTION_WIDTH = 170;
-const defaultColumnSettings = FIELD_KEYS.map((key, index) => ({ key, visible: index < 4, disabled: index === 0 }));
+const defaultColumnSettings = FIELD_KEYS.map((key, index) => ({ key, visible: index < 5, disabled: index === 0 }));
 const columnSettings = ref(defaultColumnSettings.map(setting => ({ ...setting })));
 const columnSettingsOpen = ref(false);
 const visibleColumnKeys = computed<FieldKey[]>(() => columnSettings.value.filter(setting => setting.visible).map(setting => setting.key));
@@ -92,8 +95,8 @@ const sortField = ref<FieldKey | ''>('');
 const sortDirection = ref<SortDirection>('');
 const collator = computed(() => new Intl.Collator(locale.value, { numeric: true, sensitivity: 'base' }));
 function compareRows(a: Tag, b: Tag, key: FieldKey, direction: 'ascend' | 'descend'): number {
-  const x = String(a[key] ?? '');
-  const y = String(b[key] ?? '');
+  const x = key === 'owner' ? tagOwnerName(a.owner) : String(a[key] ?? '');
+  const y = key === 'owner' ? tagOwnerName(b.owner) : String(b[key] ?? '');
   if (!x && y) return 1;
   if (x && !y) return -1;
   const result = collator.value.compare(x, y);
@@ -139,31 +142,63 @@ const resultRows = computed<Tag[]>(() => {
   return [...list].sort((a, b) => compareRows(a, b, key, direction));
 });
 const pagedRows = computed(() => resultRows.value.slice((page.value - 1) * pageSize.value, page.value * pageSize.value));
-function cellText(row: Tag, key: string): string { return String(row[key as keyof Tag] ?? '') || '—'; }
+function cellText(row: Tag, key: string): string { return key === 'owner' ? tagOwnerName(row.owner) : String(row[key as keyof Tag] ?? '') || '—'; }
 
-/* ---------------------------------------------- 新建 / 编辑 / 详情弹窗
-   表单弹窗按 Dialog 规范在 X / 取消 / Escape 时立即关闭，不做二次放弃确认。 */
-type DialogMode = 'create' | 'edit' | 'view';
-const dialogOpen = ref(false);
-const dialogMode = ref<DialogMode>('create');
-const dialogTitle = computed(() => (
-  dialogMode.value === 'create' ? t('tags.new')
-    : dialogMode.value === 'edit' ? t('tags.edit') : t('tags.detailTitle')
-));
-const form = reactive<Tag>({ id: '', name: '', description: '', color: DEFAULT_COLOR, creator: '', date: '' });
+/* ---------------------------------------------- 新建 / 编辑抽屉（DESIGN.md · Drawer）
+   业务抽屉：500px / 56px 白色头部 / Fill-1 灰画布 + 白色内容卡 / 固定底部操作栏 / 向右线性滑出。
+   编辑态有未保存修改时，X / 取消 / Escape / 遮罩都不静默关闭，统一走共享 ConfirmDialog 的放弃确认
+   （2026-11-06 Dismissal and motion 裁决）。本页不提供「详情」只读态。 */
+type DrawerMode = 'create' | 'edit';
+const drawerOpen = ref(false);
+const drawerMode = ref<DrawerMode>('create');
+const drawerTitle = computed(() => drawerMode.value === 'create' ? t('tags.new') : t('tags.edit'));
+const form = reactive<Tag>({ id: '', name: '', owner: '', description: '', color: DEFAULT_COLOR, creator: '', date: '' });
 const error = ref('');
-const nameInput = ref<{ focus: () => void }>();
-function openDialog(mode: DialogMode, row?: Tag) {
-  dialogMode.value = mode;
-  Object.assign(form, row ?? { id: '', name: '', description: '', color: DEFAULT_COLOR, creator: '', date: '' });
+const ownerError = ref('');
+const saving = ref(false);
+const nameInput = ref<{ focus?: () => void }>();
+/* 脏表单快照只覆盖可编辑字段：打开抽屉时记录，未真正改动过就不触发放弃确认。 */
+const formSnapshot = ref('');
+const discardOpen = ref(false);
+function formState() { return JSON.stringify({ name: form.name, owner: form.owner, description: form.description, color: form.color }); }
+const isDirty = computed(() => formState() !== formSnapshot.value);
+/** Arco Drawer 在 X / Escape / 遮罩 / 默认取消按钮之前调用；返回 false 阻止关闭。 */
+function beforeCancel(): boolean {
+  if (saving.value) return false;
+  if (!isDirty.value) return true;
+  if (!discardOpen.value) discardOpen.value = true;
+  return false;
+}
+function requestClose() { if (beforeCancel()) drawerOpen.value = false; }
+function discardAndClose() { discardOpen.value = false; drawerOpen.value = false; }
+/* Arco Select 的实例不暴露 focus()：校验失败时回退到控件内部 input 聚焦，
+   避免对组件实例直接调用不存在的方法而抛出运行时错误。 */
+function focusField(instance: { focus?: () => void } | undefined, id: string) {
+  if (typeof instance?.focus === 'function') { instance.focus(); return; }
+  const el = document.getElementById(id);
+  const target = el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement
+    ? el
+    : el?.querySelector<HTMLInputElement | HTMLTextAreaElement>('input, textarea');
+  target?.focus();
+}
+function focusOwnerInput() { focusField(undefined, 'tag-owner-input'); }
+function openDrawer(mode: DrawerMode, row?: Tag) {
+  drawerMode.value = mode;
+  Object.assign(form, row ?? { id: '', name: '', owner: '', description: '', color: DEFAULT_COLOR, creator: '', date: '' });
   error.value = '';
-  dialogOpen.value = true;
+  ownerError.value = '';
+  formSnapshot.value = formState();
+  discardOpen.value = false;
+  drawerOpen.value = true;
 }
 function save() {
+  if (saving.value) return;
   const name = form.name.trim();
   error.value = !name ? 'tags.required'
     : rows.value.some(row => row.id !== form.id && row.name === name) ? 'tags.duplicate' : '';
-  if (error.value) { nameInput.value?.focus(); return; }
+  ownerError.value = !form.owner ? 'tags.ownerRequired' : !TAG_OWNER_OPTIONS.some(owner => owner.accountId === form.owner) ? 'tags.ownerUnavailable' : '';
+  if (error.value) { focusField(nameInput.value, 'tag-name-input'); return; }
+  if (ownerError.value) { nextTick(focusOwnerInput); return; }
   const record: Tag = {
     ...form,
     updater: MOCK_CURRENT_USER.name,
@@ -173,16 +208,16 @@ function save() {
     creator: form.creator || MOCK_CURRENT_USER.name,
     date: form.date || new Date().toISOString().slice(0, 10),
   };
-  const index = rows.value.findIndex(row => row.id === record.id);
-  if (index < 0) rows.value.unshift(record); else rows.value[index] = record;
-  dialogOpen.value = false;
-  page.value = 1;
-  Message.success(t('tags.saved'));
+  saving.value = true;
+  try {
+    saveTagRecord(record);
+    drawerOpen.value = false;
+    page.value = 1;
+    Message.success(t('tags.saved'));
+  } catch { Message.error(t('tags.saveFailed')); }
+  finally { saving.value = false; }
 }
-function handleDialogOk() {
-  if (dialogMode.value === 'view') { dialogOpen.value = false; return; }
-  save();
-}
+function handleDrawerOk() { save(); }
 
 const taskCenter = useTaskCenterStore();
 const exportOpen = ref(false);
@@ -203,7 +238,7 @@ async function exportRows() {
     const sheet = book.addWorksheet(title);
     sheet.addRow(keys.map(fieldLabel));
     sheet.columns = keys.map(() => ({ width: 24 }));
-    for (const row of records) sheet.addRow(keys.map(key => row[key] || '—'));
+    for (const row of records) sheet.addRow(keys.map(key => cellText(row,key)));
     const blob = new Blob([await book.xlsx.writeBuffer() as BlobPart], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
     const now = new Date();
     taskCenter.addDownloadTask({ id: `dl-${crypto.randomUUID()}`, module: 'tags', fileStamp: now.toISOString().replace(/\D/g, '').slice(0, 14), operator: MOCK_CURRENT_USER.name, time: now.toLocaleString('sv-SE'), status: 'success', progress: 100, fileUrl: URL.createObjectURL(blob), fileName: `${title}_${now.toLocaleDateString('en-CA')}.xlsx` });
@@ -223,7 +258,8 @@ function requestDelete(row: Tag) {
   deleteOpen.value = true;
 }
 function confirmDelete() {
-  rows.value = rows.value.filter(row => row.id !== deleteId.value);
+  try { deleteTagRecord(deleteId.value); }
+  catch { Message.error(t('tags.deleteFailed')); return; }
   deleteOpen.value = false;
   deleteId.value = '';
   Message.success(t('tags.deleted'));
@@ -245,8 +281,9 @@ function confirmDelete() {
           :placeholder="t('tags.all')"
           :aria-label="fieldLabel(key)"
           allow-clear
+          allow-search
         >
-          <a-option v-for="name in personOptions(key)" :key="name" :value="name">{{ name }}</a-option>
+          <a-option v-for="option in personOptions(key)" :key="option.value" :value="option.value">{{ option.label }}</a-option>
         </a-select>
         <a-date-picker
           v-else-if="DATE_KEYS.includes(key)"
@@ -291,7 +328,7 @@ function confirmDelete() {
     <section class="tags-list" role="region" :aria-label="t('tags.listTitle')">
       <div class="list-toolbar">
         <div class="list-toolbar__left">
-          <a-button type="primary" @click="openDialog('create')"><template #icon><IconPlus /></template>{{ t('tags.new') }}</a-button>
+          <a-button type="primary" @click="openDrawer('create')"><template #icon><IconPlus /></template>{{ t('tags.new') }}</a-button>
           <a-button class="app-btn-neutral" :loading="exporting" @click="requestExport"><template #icon><IconDownload /></template>{{ t('tags.export') }}</a-button>
         </div>
         <div class="list-toolbar__right">
@@ -329,7 +366,7 @@ function confirmDelete() {
         </template>
         <template #actions="{ record }">
           <div class="row-actions">
-            <button type="button" class="row-action" @click="openDialog('edit', record as Tag)">{{ t('designSystem.edit') }}</button>
+            <button type="button" class="row-action" @click="openDrawer('edit', record as Tag)">{{ t('designSystem.edit') }}</button>
             <button type="button" class="row-action row-action--danger" @click="requestDelete(record as Tag)">{{ t('tags.delete') }}</button>
           </div>
         </template>
@@ -341,75 +378,91 @@ function confirmDelete() {
       <AppPagination v-model:current="page" v-model:page-size="pageSize" :total="resultRows.length" />
     </section>
 
-    <!-- 新建 / 编辑 / 详情共用一个居中表单弹窗：内容 560px，字段标签在上、控件 500px -->
-    <a-modal
-      :visible="dialogOpen"
-      :title="dialogTitle"
-      :width="'min(560px, calc(100vw - 32px))'"
-      :ok-text="dialogMode === 'view' ? t('designSystem.close') : t('designSystem.confirm')"
-      :cancel-text="t('designSystem.cancel')"
-      :hide-cancel="dialogMode === 'view'"
-      class="tags-dialog"
-      @ok="handleDialogOk"
-      @cancel="dialogOpen = false"
+    <!-- 新建 / 编辑共用一个 500px 业务抽屉（DESIGN.md · Drawer）：
+         56px 白色头部 + Fill-1 灰画布 + 白色内容卡 + 固定底栏，向右线性滑出。 -->
+    <a-drawer
+      v-model:visible="drawerOpen"
+      :title="drawerTitle"
+      :width="'min(500px, 100vw)'"
+      placement="right"
+      :mask-closable="!saving"
+      :esc-to-close="!saving"
+      :closable="!saving"
+      :on-before-cancel="beforeCancel"
+      unmount-on-close
+      class="tags-drawer"
     >
-      <div v-if="dialogMode === 'view'" class="app-detail-list">
-        <div class="app-detail-row"><span class="app-detail-label">{{ t('tags.name') }}</span><span class="app-detail-value"><span class="tag-name-chip" :class="`tag-color--${form.color}`">{{ form.name }}</span></span></div>
-        <div class="app-detail-row">
-          <span class="app-detail-label">{{ t('tags.color') }}</span>
-          <span class="app-detail-value tag-color-value">
-            <span class="tag-color-dot" :class="`tag-color--${form.color}`" aria-hidden="true" />{{ t(`tags.colors.${form.color}`) }}
-          </span>
-        </div>
-        <div class="app-detail-row"><span class="app-detail-label">{{ t('tags.description') }}</span><span class="app-detail-value">{{ form.description || '—' }}</span></div>
-      </div>
-      <AppFormLayout v-else>
-        <a-form :model="form" layout="vertical">
-          <a-form-item required :validate-status="error ? 'error' : undefined" :help="error ? t(error) : ''">
-            <template #label><AppFieldLabel :text="t('tags.name')" /></template>
-            <a-input
-              ref="nameInput"
-              v-model="form.name"
-              :max-length="20"
-              :show-word-limit="true"
-              :placeholder="t('tags.enter')"
-              :input-attrs="{ 'aria-label': t('tags.name') }"
-              allow-clear
-            />
-          </a-form-item>
-          <a-form-item>
-            <template #label><AppFieldLabel :text="t('tags.color')" /></template>
-            <div class="tag-color-picker" role="group" :aria-label="t('tags.color')">
-              <button
-                v-for="code in COLOR_CODES"
-                :key="code"
-                type="button"
-                class="tag-color-swatch"
-                :class="[`tag-color--${code}`, { 'is-selected': form.color === code }]"
-                :aria-pressed="form.color === code"
-                :aria-label="t(`tags.colors.${code}`)"
-                :title="t(`tags.colors.${code}`)"
-                @click="form.color = code"
+      <div class="tag-drawer-group">
+        <AppFormLayout class="tag-form-layout">
+          <a-form :model="form" layout="vertical">
+            <a-form-item required :validate-status="error ? 'error' : undefined" :help="error ? t(error) : ''">
+              <template #label><AppFieldLabel :text="t('tags.name')" /></template>
+              <a-input
+                ref="nameInput"
+                v-model="form.name"
+                :max-length="20"
+                :show-word-limit="true"
+                :placeholder="t('tags.enter')"
+                :input-attrs="{ id: 'tag-name-input', 'aria-label': t('tags.name') }"
+                allow-clear
               />
-            </div>
-          </a-form-item>
-          <a-form-item>
-            <template #label><AppFieldLabel :text="t('tags.description')" /></template>
-            <a-textarea
-              v-model="form.description"
-              :max-length="200"
-              :show-word-limit="true"
-              :auto-size="{ minRows: 3, maxRows: 5 }"
-              :placeholder="t('tags.enter')"
-              :textarea-attrs="{ 'aria-label': t('tags.description') }"
-            />
-          </a-form-item>
-        </a-form>
-      </AppFormLayout>
-    </a-modal>
+            </a-form-item>
+            <a-form-item required :validate-status="ownerError ? 'error' : undefined" :help="ownerError ? t(ownerError) : ''">
+              <template #label><AppFieldLabel as="label" for="tag-owner-input" :text="t('tags.owner')" /></template>
+              <a-select id="tag-owner-input" v-model="form.owner" :disabled="saving" allow-search allow-clear :aria-label="t('tags.owner')" :placeholder="t('tags.ownerPlaceholder')" @change="ownerError = ''">
+                <a-option v-for="owner in TAG_OWNER_OPTIONS" :key="owner.accountId" :value="owner.accountId">{{ owner.name }}</a-option>
+                <a-option v-if="form.owner && !TAG_OWNER_OPTIONS.some(owner => owner.accountId === form.owner)" :value="form.owner" disabled>{{ tagOwnerName(form.owner) }} · {{ t('tags.ownerUnavailableLabel') }}</a-option>
+              </a-select>
+            </a-form-item>
+            <a-form-item>
+              <template #label><AppFieldLabel :text="t('tags.color')" /></template>
+              <div class="tag-color-picker" role="group" :aria-label="t('tags.color')">
+                <button
+                  v-for="code in COLOR_CODES"
+                  :key="code"
+                  type="button"
+                  class="tag-color-swatch"
+                  :class="[`tag-color--${code}`, { 'is-selected': form.color === code }]"
+                  :aria-pressed="form.color === code"
+                  :aria-label="t(`tags.colors.${code}`)"
+                  :title="t(`tags.colors.${code}`)"
+                  @click="form.color = code"
+                />
+              </div>
+            </a-form-item>
+            <a-form-item>
+              <template #label><AppFieldLabel :text="t('tags.description')" /></template>
+              <a-textarea
+                v-model="form.description"
+                :max-length="200"
+                :show-word-limit="true"
+                :auto-size="{ minRows: 3, maxRows: 5 }"
+                :placeholder="t('tags.enter')"
+                :textarea-attrs="{ 'aria-label': t('tags.description') }"
+              />
+            </a-form-item>
+          </a-form>
+        </AppFormLayout>
+      </div>
+      <template #footer>
+        <div class="tag-drawer-footer">
+          <a-button class="app-btn-neutral" :disabled="saving" @click="requestClose">{{ t('designSystem.cancel') }}</a-button>
+          <a-button type="primary" :loading="saving" @click="handleDrawerOk">{{ t('designSystem.confirm') }}</a-button>
+        </div>
+      </template>
+    </a-drawer>
+    <!-- 编辑抽屉脏表单放弃确认：X / 取消 / Escape / 遮罩都由 beforeCancel 拦截后走这里 -->
+    <ConfirmDialog
+      unsaved
+      :visible="discardOpen"
+      :title="''"
+      @update:visible="!$event && (discardOpen = false)"
+      @confirm="discardAndClose"
+    />
 
     <ConfirmDialog v-model:visible="exportOpen" icon="info" :title="t('sections.exportNotice.title')" :description="[t('tags.exportScope'), t('sections.exportNotice.line2')]" :ok-text="t('sections.exportNotice.confirm')" :ok-loading="exporting" :cancel-disabled="exporting" :dismissible="!exporting" @confirm="exportRows" />
     <ConfirmDialog
+      plain-title
       :visible="deleteOpen"
       icon="warning"
       :title="t('tags.remove')"
@@ -452,6 +505,35 @@ function confirmDelete() {
 .row-action--danger { color: rgb(var(--danger-6)); }
 .row-action--danger:hover { text-decoration: underline; }
 
+/* 业务抽屉壳（DESIGN.md · Drawer / Business-drawer surface）：a-drawer teleport 到 body，
+   scoped 后代选择器穿不透 Arco 内部节点，故用 :global(.tags-drawer ...) 一次性声明。
+   Fill-1 灰画布 + 白色 56px 头部 / 固定底栏 / 白色内容卡；body 是唯一垂直滚动 owner。 */
+/* 根容器不滚动：body 是全抽屉唯一的垂直滚动 owner（DESIGN.md · Drawer） */
+:global(.tags-drawer .arco-drawer) { background: var(--app-fill-1); overflow: hidden; }
+:global(.tags-drawer .arco-drawer-header) { height: 56px; background: var(--app-surface); }
+:global(.tags-drawer .arco-drawer-title) { font-size: 16px; font-weight: 600; line-height: 24px; }
+:global(.tags-drawer .arco-drawer-footer) { flex: none; background: var(--app-surface); }
+:global(.tags-drawer .arco-drawer-body) {
+  display: flex; flex-direction: column; gap: 16px;
+  padding: 16px; overflow-y: auto; overflow-x: hidden;
+  background: var(--app-fill-1);
+}
+/* 向右滑出用线性缓动（DESIGN.md · Dismissal and motion） */
+:global(.tags-drawer .slide-right-drawer-leave-active) { transition-timing-function: linear; }
+/* 可编辑控件保持白色表面 + 中性描边，聚焦改语义主色（DESIGN.md · Drawer form-control detail） */
+:global(.tags-drawer .arco-input-wrapper:not(.arco-input-disabled)),
+:global(.tags-drawer .arco-textarea-wrapper:not(.arco-textarea-disabled)),
+:global(.tags-drawer .arco-select-view:not(.arco-select-view-disabled)) {
+  background: var(--app-surface); border: 1px solid var(--app-control-border);
+}
+:global(.tags-drawer .arco-input-focus),
+:global(.tags-drawer .arco-textarea-focus),
+:global(.tags-drawer .arco-select-view-focus) { border-color: var(--app-accent); }
+/* 内容白卡：16px 内边距 / 2px 圆角；底部操作栏右对齐 */
+.tag-drawer-group { padding: 16px; border-radius: 2px; background: var(--app-surface); }
+.tag-drawer-group :deep(.arco-form-item:last-child) { margin-bottom: 0; }
+.tag-drawer-footer { display: flex; align-items: center; justify-content: flex-end; gap: 8px; }
+.tag-form-layout { width: 100%; min-width: 0; }
 /* 标签颜色：色值来自 tokens.project.json 的亮/暗两套语义变量；颜色永远与文字标签同时出现 */
 .tag-color--blue { --tag-fill: var(--app-tag-color-blue); --tag-fg: var(--app-tag-color-blue-fg); --tag-bg: var(--app-tag-color-blue-bg); }
 .tag-color--green { --tag-fill: var(--app-tag-color-green); --tag-fg: var(--app-tag-color-green-fg); --tag-bg: var(--app-tag-color-green-bg); }
@@ -465,8 +547,6 @@ function confirmDelete() {
   color: var(--tag-fg); background: var(--tag-bg);
   font-size: 14px; font-weight: 400; line-height: 22px;
 }
-.tag-color-dot { display: inline-block; flex: none; width: 10px; height: 10px; border-radius: 2px; background: var(--tag-fill); }
-.tag-color-value { display: inline-flex; align-items: center; gap: 8px; }
 .tag-color-picker { display: flex; flex-wrap: wrap; align-items: center; gap: 16px; }
 .tag-color-swatch { width: 40px; height: 40px; padding: 0; border: 0; border-radius: 6px; background: var(--tag-fill); cursor: pointer; }
 .tag-color-swatch.is-selected {

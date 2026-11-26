@@ -23,7 +23,7 @@ import { useUserProfileStore } from '../../../app/stores/userProfile';
 import { makeTemplateExport } from '../data/export';
 import { makeTemplateImportTemplate, parseTemplateImportFile } from '../data/import';
 import {
-  TEMPLATE_STATUS_CODES, TEMPLATE_REGION_CODES, TEMPLATE_COUNTRY_CODES, TEMPLATE_VEHICLE_TYPE_CODES,
+  TEMPLATE_STATUS_CODES, TEMPLATE_REGION_CODES, TEMPLATE_COUNTRY_CODES, TEMPLATE_REGION_COUNTRY_MAP, TEMPLATE_VEHICLE_TYPE_CODES,
   templateRecords as records, type TemplateRecord,
 } from '../data/templates';
 
@@ -38,13 +38,15 @@ function usageDetailLocation(id: string) {
 }
 const taskCenter = useTaskCenterStore();
 const userProfile = useUserProfileStore();
-const currentUser = computed(() => userProfile.profile.displayName);
+const currentUser = computed(() => userProfile.profile.displayName || userProfile.profile.account);
 // 状态外观由 AppStatusTag 统一承载；业务枚举 → 语义角色见 src/shared/status.ts。
 const types = ['vehicle', 'technical', 'testing', 'report', 'certificate'];
 
 /* 共享列表状态：两个视图的筛选结果 computed 与 watch 都在下方，
    这些 ref 必须先完成初始化，否则 setup 期间 watch 求值会落入暂时性死区。 */
 const active = ref('vehicle');
+/** 子页面面包屑首级跟随当前类型 tab（2026-11-23 用户裁决），不再固定为「模版管理」。 */
+const tabLabel = computed(() => t(`templates.${active.value}`));
 const current = ref(1);
 const pageSize = ref(10);
 const selected = ref<TemplateRecord>();
@@ -270,7 +272,11 @@ function configCellText(row: TemplateRecord, key: string): string {
 function configOptions(key: ConfigFilterKey): readonly string[] {
   if (key === 'status') return TEMPLATE_STATUS_CODES;
   if (key === 'region') return TEMPLATE_REGION_CODES;
-  if (key === 'country') return TEMPLATE_COUNTRY_CODES;
+  // 适用国家随适用区域联动：选了区域只给该区域国家，未选区域给全部。
+  if (key === 'country') {
+    const region = configDraft.region;
+    return region ? (TEMPLATE_REGION_COUNTRY_MAP[region] ?? TEMPLATE_COUNTRY_CODES) : TEMPLATE_COUNTRY_CODES;
+  }
   if (key === 'vehicleType') return TEMPLATE_VEHICLE_TYPE_CODES;
   if (key === 'version') return [...new Set(records.value.map(row => row.version))];
   return [];
@@ -308,6 +314,17 @@ const defaultConfigColumnItems = computed<ColumnSettingsItem[]>(() => buildColum
 const configDraft = reactive<Partial<Record<string, string>>>({});
 const configApplied = ref<Partial<Record<string, string>>>({});
 const configHasApplied = computed(() => CONFIG_FILTER_KEYS.some(key => Boolean(configApplied.value[key])));
+
+/* 适用区域 ↔ 适用国家联动（2026-11-23 用户裁决）：
+   先选国家后选区域时，已选国家不属于新区域则清除、属于则保留；
+   清空区域时国家选项恢复为全部，已选国家不清。 */
+watch(() => configDraft.region, (region) => {
+  if (!region) return;
+  const allowed = TEMPLATE_REGION_COUNTRY_MAP[region];
+  if (!allowed) return;
+  if (configDraft.country && !allowed.includes(configDraft.country)) configDraft.country = '';
+});
+
 function applyConfigFilters() { configApplied.value = { ...configDraft }; current.value = 1; }
 function resetConfigFilters() {
   for (const key of CONFIG_FILTER_KEYS) configDraft[key] = '';
@@ -538,6 +555,7 @@ const withdrawTarget = ref<TemplateRecord>();
 const approveTarget = ref<TemplateRecord>();
 const approveResult = ref('');
 const approveOpinion = ref('');
+function closeApprove() { approveTarget.value = undefined; }
 
 function copyRow(row: TemplateRecord) {
   const now = new Date();
@@ -648,7 +666,11 @@ function finishLeave(allow: boolean) {
   discard.value = false;
   resolve?.(allow);
 }
-async function close() { if (await requestLeave()) selected.value = undefined; }
+async function close() {
+  // 审批页优先退出，避免浏览器后退时停留在审批子页面。
+  if (approveTarget.value) { approveTarget.value = undefined; return; }
+  if (await requestLeave()) selected.value = undefined;
+}
 useSamePageNavigation(close);
 const vehicleEditor = ref<{ validate: () => Promise<boolean> }>();
 async function save(submit = false) {
@@ -685,6 +707,39 @@ onBeforeRouteUpdate(async () => {
 <template>
   <section class="templates-page">
     <TemplateUsageDetail v-if="usageDetailId" :record="usageDetail" />
+    <template v-else-if="approveTarget">
+      <!-- 审批为页内子页面（2026-11-23 用户裁决）：面包屑首级跟随类型 tab，与新增 / 详情 / 编辑 / 复制一致。 -->
+      <AppDetailHeader
+        :ancestor-back="closeApprove"
+        :ancestor-label="tabLabel"
+        :current-label="t('templates.approve')"
+      >
+        <template #actions>
+          <a-button class="template-outline" @click="closeApprove">{{ t('templates.cancel') }}</a-button>
+          <a-button type="primary" @click="confirmApprove">{{ t('templates.confirm') }}</a-button>
+        </template>
+      </AppDetailHeader>
+      <section class="approve-panel">
+        <div class="approve-field">
+          <AppFieldLabel as="label" :text="t('templates.approveResult')" :colon="true" />
+          <a-radio-group v-model="approveResult">
+            <a-radio value="pass">{{ t('templates.approvePass') }}</a-radio>
+            <a-radio value="reject">{{ t('templates.approveReject') }}</a-radio>
+          </a-radio-group>
+        </div>
+        <div class="approve-field">
+          <AppFieldLabel as="label" :text="t('templates.approveOpinion')" :colon="true" />
+          <a-textarea
+            v-model="approveOpinion"
+            :placeholder="t('templates.approveOpinionPlaceholder')"
+            :max-length="200"
+            :auto-size="{ minRows: 3, maxRows: 5 }"
+            show-word-limit
+            allow-clear
+          />
+        </div>
+      </section>
+    </template>
     <template v-else-if="!selected">
       <!-- 筛选条件区：类型 tab 归入同一面板；字段名称在上、200px 控件在下，查询组紧跟最后字段 -->
       <form class="filter-panel app-filter-strip" @submit.prevent="usage ? applyUsageFilters() : applyConfigFilters()">
@@ -736,6 +791,7 @@ onBeforeRouteUpdate(async () => {
               class="app-filter-control"
               :placeholder="t('templates.all')"
               :aria-label="configLabel(key)"
+              :allow-search="key === 'region' || key === 'country'"
               allow-clear
             >
               <a-option v-for="code in configOptions(key)" :key="code" :value="code">{{ configOptionLabel(key, code) }}</a-option>
@@ -912,7 +968,7 @@ onBeforeRouteUpdate(async () => {
     <template v-else>
       <AppDetailHeader
         :ancestor-back="close"
-        :ancestor-label="t('templates.title')"
+        :ancestor-label="tabLabel"
         :current-label="editing ? (copying ? t('templateEditor.copyTitle') : records.some(r => r.id === selected!.id) ? t('templates.edit') : t('templates.new')) : t('templates.view')"
       >
         <template #actions>
@@ -962,6 +1018,7 @@ onBeforeRouteUpdate(async () => {
       @confirm="confirmConfigExport"
     />
     <ConfirmDialog
+      plain-title
       :visible="Boolean(deleteTarget)"
       icon="warning"
       :title="t('templates.deleteTitle')"
@@ -972,6 +1029,7 @@ onBeforeRouteUpdate(async () => {
       @confirm="confirmDelete"
     />
     <ConfirmDialog
+      plain-title
       :visible="Boolean(withdrawTarget)"
       icon="warning"
       :title="t('templates.withdrawTitle')"
@@ -994,35 +1052,6 @@ onBeforeRouteUpdate(async () => {
       <template #footer><a-button class="app-btn-neutral" :disabled="importing" @click="importOpen = false">{{ t('templates.cancel') }}</a-button><a-button type="primary" :loading="importing" @click="confirmImport">{{ t('templates.import') }}</a-button></template>
     </a-drawer>
 
-    <!-- 审批：结论 + 意见，确认后写入状态（不伪造服务端结果，动作发生在前端主数据） -->
-    <a-modal
-      :visible="Boolean(approveTarget)"
-      :title="t('templates.approveTitle')"
-      :width="'min(560px, calc(100vw - 32px))'"
-      :ok-text="t('templates.confirm')"
-      :cancel-text="t('templates.cancel')"
-      @ok="confirmApprove"
-      @cancel="approveTarget = undefined"
-    >
-      <div class="approve-field">
-        <AppFieldLabel as="label" :text="t('templates.approveResult')" :colon="true" />
-        <a-radio-group v-model="approveResult">
-          <a-radio value="pass">{{ t('templates.approvePass') }}</a-radio>
-          <a-radio value="reject">{{ t('templates.approveReject') }}</a-radio>
-        </a-radio-group>
-      </div>
-      <div class="approve-field">
-        <AppFieldLabel as="label" :text="t('templates.approveOpinion')" :colon="true" />
-        <a-textarea
-          v-model="approveOpinion"
-          :placeholder="t('templates.approveOpinionPlaceholder')"
-          :max-length="200"
-          :auto-size="{ minRows: 3, maxRows: 5 }"
-          show-word-limit
-          allow-clear
-        />
-      </div>
-    </a-modal>
   </section>
 </template>
 
@@ -1097,6 +1126,8 @@ h2 { margin: 0; font-size: var(--mt-ds-font-title); line-height: var(--mt-ds-lin
 .import-drop p { margin: 0; }
 .import-file { color: var(--app-color-primary); }
 .import-template-link { align-self: flex-start; padding: 0; }
+/* 审批页内子页面：与其它子页面共用白底卡片表面 */
+.approve-panel { min-width: 0; padding: var(--mt-ds-space-4); background: var(--mt-ds-surface); border-radius: var(--mt-ds-control-radius); }
 .approve-field { display: flex; flex-direction: column; gap: var(--mt-ds-space-2); margin-bottom: var(--mt-ds-space-4); }
 
 /* 表格：白底、无外框、无斑马纹、行间单线；表头与数据均 400 字重，两视图共用 */

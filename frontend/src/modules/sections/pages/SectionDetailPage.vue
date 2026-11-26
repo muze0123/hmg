@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import TaskPauseNotice from '../../projects/components/TaskPauseNotice.vue';
+import { taskPaused, displayedTaskStatus } from '../../projects/data/suspension';
 import { computed } from 'vue';
 import { useRoute } from 'vue-router';
 import { useI18n } from 'vue-i18n';
@@ -27,7 +29,7 @@ function templateName(id: string) {
       :current-label="t('sections.detail')"
       :nav-aria-label="t('sections.detailBreadcrumb')"
     />
-    <template v-if="item && parent">
+    <template v-if="item && parent"><TaskPauseNotice :project="item.project" :status="item.status" />
       <TaskDetailSection :record="parent" block="task" />
       <TaskDetailSection :record="parent" block="sections" />
       <section class="detail-block" :aria-label="t('sectionExecution.info')">

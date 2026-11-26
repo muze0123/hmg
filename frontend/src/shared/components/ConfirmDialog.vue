@@ -26,6 +26,8 @@ const props = withDefaults(
     unsaved?: boolean;
     /** 状态图标语义：question 问号确认 / info 提示 / warning 告警 / success 成功 / danger 危险。 */
     icon?: IconKind;
+    /** 标题不加粗（2026-11-24 用户裁决）：撤回类二次确认弹窗标题用常规字重（400）。 */
+    plainTitle?: boolean;
     title: string;
     /** 副标题：单段文本或多行文本（多行逐行渲染、统一左对齐）。 */
     description?: string | string[];
@@ -42,6 +44,7 @@ const props = withDefaults(
   }>(),
   {
     icon: 'question',
+    plainTitle: false,
     unsaved: false,
     description: '',
     single: false,
@@ -68,6 +71,8 @@ const iconComponents = {
   danger: IconCloseCircle,
 };
 const iconComponent = computed(() => iconComponents[props.icon]);
+/** 取消按钮加粗（2026-11-24 用户裁决）：删除 / 未保存等确认类弹窗加粗；info 提示类（导出等）与单按钮模式不加粗。 */
+const strongCancel = computed(() => !props.single && props.icon !== 'info');
 const descriptionLines = computed(() =>
   Array.isArray(props.description)
     ? props.description.filter(Boolean)
@@ -111,7 +116,7 @@ function onCancel() {
         :class="`app-confirm-icon-${icon}`"
       /></span>
       <div class="app-confirm-copy">
-        <p :id="titleId" class="app-confirm-title">{{ unsaved ? t('designSystem.unsaved') : title }}</p>
+        <p :id="titleId" class="app-confirm-title" :class="{ 'app-confirm-title-plain': plainTitle }">{{ unsaved ? t('designSystem.unsaved') : title }}</p>
         <p v-for="(line, index) in descriptionLines" :key="index" class="app-confirm-desc">{{ line }}</p>
       </div>
     </div>
@@ -119,7 +124,7 @@ function onCancel() {
     <template #footer>
       <a-button v-if="single" type="primary" @click="close">{{ ackText ?? t('designSystem.acknowledge') }}</a-button>
       <template v-else>
-        <a-button class="app-btn-neutral" :disabled="cancelDisabled" @click="onCancel">
+        <a-button class="app-btn-neutral" :class="{ 'app-confirm-cancel-strong': strongCancel }" :disabled="cancelDisabled" @click="onCancel">
           {{ cancelText ?? t('designSystem.cancel') }}
         </a-button>
         <a-button type="primary" :loading="okLoading" @click="!okLoading && emit('confirm')">
@@ -132,7 +137,8 @@ function onCancel() {
 
 <style scoped>
 /* The shell styles below follow the teleported Arco container. */
-.app-confirm-main { display: flex; align-items: flex-start; gap: var(--mt-ds-space-6); width: 100%; min-width: 0; }
+/* 图标与标题间距 10px、图标与弹窗左边 20px（2026-11-24 用户裁决，全局统一，含 unsaved 变体）。 */
+.app-confirm-main { display: flex; align-items: flex-start; gap: var(--mt-ds-confirm-icon-gap); width: 100%; min-width: 0; }
 .app-confirm-icon-slot { display:flex; align-items:center; justify-content:center; flex:none; width:var(--mt-ds-confirm-icon); height:var(--mt-ds-line-title); }
 .app-confirm-icon { font-size:var(--mt-ds-confirm-icon); flex: none; color: var(--app-confirm-icon); }
 .app-confirm-icon-success { color: rgb(var(--success-6)); }
@@ -158,7 +164,11 @@ function onCancel() {
 .app-confirm-desc + .app-confirm-desc { margin-top: var(--mt-ds-space-1); }
 
 .app-confirm-unsaved .app-confirm-title { font-size: var(--mt-ds-font-body); line-height: var(--mt-ds-line-body); font-weight: var(--mt-ds-weight-body); }
-.app-confirm-unsaved .app-confirm-main { gap: var(--mt-ds-space-4); }
+/* unsaved 变体的主行间距不再放宽：间距统一 10px（2026-11-24）。 */
+/* 取消按钮加粗：确认类（非 info）弹窗的取消文本 600。 */
+.app-confirm-cancel-strong { font-weight: var(--mt-ds-weight-title); }
+/* 撤回类弹窗标题不加粗（2026-11-24）：常规字重 400，尺寸与行高不变。 */
+.app-confirm-title-plain { font-weight: var(--mt-ds-weight-body); }
 </style>
 
 <style>
@@ -195,7 +205,8 @@ body .app-confirm-dialog .arco-modal-footer {
   text-align: right;
 }
 /* Unsaved-change composition follows the supplied reference. */
-.app-confirm-unsaved .arco-modal-body { padding-left: var(--mt-ds-space-6); padding-right: var(--mt-ds-space-6); }
+/* 左内边距与普通确认弹窗一致 20px（2026-11-24 间距统一裁决）。 */
+.app-confirm-unsaved .arco-modal-body { padding-left: var(--mt-ds-space-5); padding-right: var(--mt-ds-space-5); }
 .app-confirm-unsaved .arco-modal-footer .arco-btn { min-width: 90px; }
 .app-confirm-unsaved .arco-modal-footer .app-btn-neutral { background: var(--app-surface); border: 1px solid var(--mt-ds-border); color: var(--mt-ds-text); }
 .app-confirm-unsaved .arco-modal-footer .arco-btn-primary { background: var(--app-color-primary); border-color: var(--app-color-primary); }

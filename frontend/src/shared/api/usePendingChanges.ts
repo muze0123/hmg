@@ -1,5 +1,5 @@
 import { onBeforeUnmount, ref, type Ref } from 'vue';
-import { onBeforeRouteLeave } from 'vue-router';
+import { onBeforeRouteLeave, onBeforeRouteUpdate } from 'vue-router';
 export function usePendingChanges(dirty: Ref<boolean>, busy: Ref<boolean>) {
   const visible = ref(false);
   let resolve: ((allow: boolean) => void) | undefined;
@@ -14,6 +14,7 @@ export function usePendingChanges(dirty: Ref<boolean>, busy: Ref<boolean>) {
   function beforeUnload(event: BeforeUnloadEvent) { if (dirty.value) { event.preventDefault(); event.returnValue = ''; } }
   window.addEventListener('beforeunload', beforeUnload);
   onBeforeRouteLeave(check);
+  onBeforeRouteUpdate(check);
   onBeforeUnmount(() => { window.removeEventListener('beforeunload', beforeUnload); finish(false); });
   return { visible, check, finish };
 }

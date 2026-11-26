@@ -1,9 +1,9 @@
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue';
+import { computed, defineAsyncComponent, onBeforeUnmount, ref, watch, type Component } from 'vue';
 import { onBeforeRouteLeave, onBeforeRouteUpdate, useRoute, useRouter } from 'vue-router';
 import { useI18n } from 'vue-i18n';
-import { Message, type TableColumnData } from '@arco-design/web-vue';
-import { IconPlus, IconMore, IconDownload, IconUpload, IconSearch, IconRefresh, IconFilter, IconSettings } from '@arco-design/web-vue/es/icon';
+import { Message, type TableColumnData, type FileItem } from '@arco-design/web-vue';
+import { IconPlus, IconMore, IconDownload, IconUpload, IconSearch, IconRefresh, IconFilter, IconSettings, IconFilePdf, IconEye, IconFolder } from '@arco-design/web-vue/es/icon';
 import ExcelJS from 'exceljs';
 import AppFieldLabel from '../../../design/components/AppFieldLabel.vue';
 import AppPagination from '../../../design/components/AppPagination.vue';
@@ -12,6 +12,7 @@ import AppStatusTag from '../../../design/components/AppStatusTag.vue';
 import ColumnSettingsPopover, { type ColumnSettingsItem } from '../../../shared/components/ColumnSettingsPopover.vue';
 import { statusRole } from '../../../shared/status';
 import ConfirmDialog from '../../../shared/components/ConfirmDialog.vue';
+import { useTaskCenterStore } from '../../task-center/stores/taskCenter';
 import { projects, MOCK_CURRENT_USER } from '../../projects/data/projects';
 import { reports } from '../../reports/data/reports';
 import { testTasks } from '../../testing/data/testing';
@@ -19,6 +20,7 @@ import { technicalTasks } from '../../technical/data/technical';
 import { libraryRecords as rows, libraryPerspective as perspective, LIBRARY_STATUSES, appendLibraryEvent, libraryTimeline, type LibraryRecord, type LibraryEntry, type LibraryStatus } from '../data/records';
 import type { CertificateEntry } from '../../certificates/data/certificates';
 const { t, locale } = useI18n();
+const taskCenter = useTaskCenterStore();
 const route = useRoute(); const router = useRouter(); const base = '/certificate-library';
 const emptyFilters = () => ({ number: '', name: '', project: '', taskName: '', regulation: '', regulationName: '', issuer: '', agency: '', issued: '', expires: '', status: '' });
 const filters = ref(emptyFilters());
@@ -112,7 +114,7 @@ function runAction(action: RowAction, row: LibraryRecord) {
       row.status = 'withdrawn';
       appendLibraryEvent(row, 'withdraw', MOCK_CURRENT_USER.name);
       Message.success(label('withdrawn'));
-    });
+    }, false, true);
     return;
   }
   void router.push(action === 'detail' ? `${base}/${row.id}` : `${base}/${row.id}/${action}`);
@@ -164,8 +166,8 @@ watch(() => route.fullPath, () => {
   draft.value = row ? { ...row, entries: row.entries.map(e => ({ ...e, name: e.name ?? row.name })), history: [...row.history], events: row.events?.map(event => ({ ...event })) } : route.params.id === 'new' ? { id: `CL-${Date.now()}`, name: '', project: '', status: 'submitting', entries: [], history: [], events: [] } : undefined;
   errors.value = []; snapshot.value = state();
 }, { immediate: true });
-const confirm = ref(false); const confirmTitle = ref(''); const unsaved = ref(false); let pending: () => void = () => {};
-function ask(title: string, callback: () => void, dirty = false) { confirmTitle.value = title; pending = callback; unsaved.value = dirty; confirm.value = true; }
+const confirm = ref(false); const confirmTitle = ref(''); const unsaved = ref(false); const confirmPlain = ref(false); let pending: () => void = () => {};
+function ask(title: string, callback: () => void, dirty = false, plain = false) { confirmTitle.value = title; pending = callback; unsaved.value = dirty; confirmPlain.value = plain; confirm.value = true; }
 function guard() { if (state() === snapshot.value) return true; return new Promise<boolean>(resolve => { ask(label('leave'), () => resolve(true), true); const stop = watch(confirm, value => { if (!value) { resolve(false); stop(); } }); }); }
 onBeforeRouteLeave(guard); onBeforeRouteUpdate(guard);
 function selectProject() {
@@ -212,9 +214,30 @@ function upload(event: Event, entry: CertificateEntry) {
   if (file && (file.name.toLowerCase().endsWith('.pdf') && (!file.type || file.type === 'application/pdf')) && file.size <= 20 * 1024 * 1024) entry.file = file;
   else if (file) Message.error(label('fileError')); input.value = '';
 }
-function download(entry: CertificateEntry) { if (!entry.file) return; downloadBlob(entry.file, entry.file.name); }
+function download(entry: CertificateEntry) {
+  if (!entry.file) return;
+  // 下载走导入导出能力：登记到「导入导出-下载任务」，成功提示后打开任务抽屉（对齐各业务模块导出契约）。
+  const now = new Date();
+  const fileUrl = URL.createObjectURL(entry.file);
+  taskCenter.addDownloadTask({ id: `certificate-${now.getTime()}`, module: 'certificates', fileStamp: now.toISOString().replace(/\D/g, '').slice(0, 14), operator: MOCK_CURRENT_USER.name, time: now.toLocaleString('sv-SE', { timeZone: 'Asia/Shanghai' }), status: 'success', progress: 100, fileUrl, fileName: entry.file.name });
+  Message.success(t('sections.exportCreated'));
+  taskCenter.open('download');
+}
 function downloadBlob(blob: Blob, name: string) { const url = URL.createObjectURL(blob); const a = document.createElement('a'); a.href = url; a.download = name; a.click(); setTimeout(() => URL.revokeObjectURL(url), 1000); }
-function remove(row: LibraryRecord) { ask(label('deleteConfirm'), () => { rows.value = rows.value.filter(r => r.id !== row.id); page.value = Math.min(page.value, Math.max(1, Math.ceil(results.value.length / pageSize.value))); snapshot.value = state(); Message.success(label('deleted')); if (route.params.id) void router.push(base); }); }
+// 证书 PDF 在线预览：@vue-office/pdf 异步加载，对齐项目归档 DocumentPreviewDialog 契约（文件为内存 File，直接转 objectURL）。
+const OfficePdf = defineAsyncComponent(() => import('@vue-office/pdf').then(module => module.default as unknown as Component));
+const previewOpen = ref(false); const previewUrl = ref(''); const previewName = ref(''); const previewFailed = ref(false);
+let previewObjectUrl = '';
+function previewFile(entry: CertificateEntry) {
+  if (!entry.file) return;
+  if (previewObjectUrl) URL.revokeObjectURL(previewObjectUrl);
+  previewObjectUrl = URL.createObjectURL(entry.file);
+  previewUrl.value = previewObjectUrl; previewName.value = entry.file.name; previewFailed.value = false; previewOpen.value = true;
+}
+function closePreview() { previewOpen.value = false; previewUrl.value = ''; previewName.value = ''; previewFailed.value = false; if (previewObjectUrl) { URL.revokeObjectURL(previewObjectUrl); previewObjectUrl = ''; } }
+function onPreviewError() { previewFailed.value = true; }
+onBeforeUnmount(closePreview);
+function remove(row: LibraryRecord) { ask(label('deleteConfirm'), () => { rows.value = rows.value.filter(r => r.id !== row.id); page.value = Math.min(page.value, Math.max(1, Math.ceil(results.value.length / pageSize.value))); snapshot.value = state(); Message.success(label('deleted')); if (route.params.id) void router.push(base); }, false, true); }
 // 审批弹窗：驳回理由必填、审批意见选填，均限 200 字；确认后在弹窗内校验，成功后返回列表。
 const approval = ref<'completed' | 'rejected'>(); const approvalOpinion = ref(''); const approvalError = ref(false);
 const approvalLabel = computed(() => t(approval.value === 'completed' ? 'certificateLibrary.opinion' : 'vehicleApproval.reason'));
@@ -232,37 +255,112 @@ function confirmApproval() {
   approval.value = undefined; approvalOpinion.value = ''; approvalError.value = false;
   snapshot.value = state(); Message.success(label('reviewed')); void router.push(base);
 }
-const transferOpen = ref(false); const transferMode = ref<'import' | 'export'>('export'); const transferFile = ref<File>(); const transferError = ref('');
+/* ---------------------------------------------- 导入 / 导出（DESIGN.md · Batch import / Batch export baseline）
+   导入：560px 批量导入抽屉（虚线上传目标 + 注意事项编号块 + 预生成模版）→ 部分成功入库 → 登记导入任务 → 打开导入数据 tab。
+   导出：已应用筛选结果为空仅 info Message；确认弹窗（共享 ConfirmDialog）→ 生成 xlsx → 登记下载任务 → 打开导出数据 tab。 */
+const IMPORT_NOTE_KEYS = ['noteFormat', 'noteSize', 'noteRequired', 'noteDuplicates', 'noteErrors'] as const;
+const importOpen = ref(false);
+const importing = ref(false);
+const importFiles = ref<FileItem[]>([]);
+const importTemplateBlob = ref<Blob | null>(null);
+const exportOpen = ref(false);
+const exporting = ref(false);
 const transferKeys = ['id', 'name', 'project', 'regulation', 'number', 'issuer', 'agency', 'issued', 'expires', 'status'] as const;
-async function workbookExport(template = false) {
-  const workbook = new ExcelJS.Workbook(); const sheet = workbook.addWorksheet('Certificates'); sheet.addRow(template ? [...transferKeys] : visibleFields.value.map(listLabel));
-  if (!template) for (const row of results.value) sheet.addRow(visibleFields.value.map(key => cellText(row, key)));
-  const bytes = await workbook.xlsx.writeBuffer(); downloadBlob(new Blob([bytes], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }), template ? 'certificate-template.xlsx' : 'certificates.xlsx');
+type TransferRow = Record<typeof transferKeys[number], string>;
+function pad2(value: number) { return String(value).padStart(2, '0'); }
+function stampText(date: Date) { return `${date.getFullYear()}${pad2(date.getMonth() + 1)}${pad2(date.getDate())}${pad2(date.getHours())}${pad2(date.getMinutes())}${pad2(date.getSeconds())}`; }
+function clockText(date: Date) { return `${date.getFullYear()}-${pad2(date.getMonth() + 1)}-${pad2(date.getDate())} ${pad2(date.getHours())}:${pad2(date.getMinutes())}:${pad2(date.getSeconds())}`; }
+function openImport() {
+  importOpen.value = true; importFiles.value = []; importTemplateBlob.value = null;
+  void makeImportTemplate().then(blob => { importTemplateBlob.value = blob; });
 }
-async function transfer() {
-  if (busy.value) return; busy.value = true; transferError.value = '';
+function onImportFilesChange(fileList: FileItem[]) { importFiles.value = fileList.slice(-1); }
+async function makeImportTemplate(): Promise<Blob> {
+  const workbook = new ExcelJS.Workbook(); const sheet = workbook.addWorksheet('Certificates');
+  sheet.addRow(transferKeys.map(key => key === 'id' || key === 'name' ? `${key} *` : key));
+  return new Blob([await workbook.xlsx.writeBuffer() as BlobPart], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+}
+function downloadImportTemplate() {
+  if (!importTemplateBlob.value) { Message.error(label('transferError')); return; }
+  downloadBlob(importTemplateBlob.value, label('importTemplateFile'));
+}
+function importRowError(values: TransferRow, numbers: Set<string>): string {
+  if (!values.id || !values.number || !values.issuer || !values.agency || !values.issued || !/^\d{4}-\d{2}-\d{2}$/.test(values.issued)) return 'required';
+  if (values.expires && (!/^\d{4}-\d{2}-\d{2}$/.test(values.expires) || values.expires < values.issued)) return 'dates';
+  if (!projects.value.some(p => p.id === values.project) || !technicalTasks.some(task => task.project === values.project && task.regulation === values.regulation)) return 'relation';
+  if (!LIBRARY_STATUSES.includes(values.status as LibraryStatus)) return 'status';
+  if (rows.value.some(r => r.id === values.id) || numbers.has(values.number)) return 'duplicate';
+  return '';
+}
+async function confirmImport() {
+  if (importing.value) return;
+  const file = importFiles.value[0]?.file;
+  if (!file) { Message.warning(t('templates.importEmpty')); return; }
+  if (!file.name.toLowerCase().endsWith('.xlsx')) { Message.error(label('noteFormat')); return; }
+  if (file.size > 20 * 1024 * 1024) { Message.error(label('noteSize')); return; }
+  importing.value = true;
   try {
-    if (transferMode.value === 'export') { if (!results.value.length) throw new Error(); await workbookExport(); }
-    else {
-      if (!transferFile.value || transferFile.value.size > 20 * 1024 * 1024) throw new Error();
-      const workbook = new ExcelJS.Workbook(); await workbook.xlsx.load(await transferFile.value.arrayBuffer()); const sheet = workbook.worksheets[0];
-      if (!sheet || transferKeys.some((key, i) => sheet.getRow(1).getCell(i + 1).text !== key)) throw new Error();
-      const additions = new Map<string, LibraryRecord>(); const numbers = new Set(rows.value.flatMap(r => r.entries.map(e => e.number)));
-      sheet.eachRow((line, index) => {
-        if (index === 1) return;
-        const values = Object.fromEntries(transferKeys.map((key, i) => [key, line.getCell(i + 1).text.trim()])) as Record<typeof transferKeys[number], string>;
-        if (!values.id || !values.name || !projects.value.some(p => p.id === values.project) || !technicalTasks.some(task => task.project === values.project && task.regulation === values.regulation) || !values.number || numbers.has(values.number) || rows.value.some(r => r.id === values.id) || !LIBRARY_STATUSES.includes(values.status as LibraryStatus) || !/^\d{4}-\d{2}-\d{2}$/.test(values.issued) || (values.expires && (!/^\d{4}-\d{2}-\d{2}$/.test(values.expires) || values.expires < values.issued)) || !values.issuer || !values.agency) throw new Error();
-        let row = additions.get(values.id);
-        if (row && (row.project !== values.project || row.name !== values.name || row.status !== values.status)) throw new Error();
-        if (!row) { row = { id: values.id, name: values.name, project: values.project, status: values.status as LibraryStatus, entries: [], history: [], events: [] }; appendLibraryEvent(row, 'import', MOCK_CURRENT_USER.name); additions.set(values.id, row); }
-        row.entries.push({ regulation: values.regulation, number: values.number, issuer: values.issuer, agency: values.agency, issued: values.issued, expires: values.expires, file: null }); numbers.add(values.number);
-      });
-      if (!additions.size) throw new Error(); rows.value.unshift(...additions.values()); page.value = 1;
-    }
-    transferOpen.value = false; Message.success(label(transferMode.value === 'import' ? 'imported' : 'exported'));
-  } catch { transferError.value = label('transferError'); } finally { busy.value = false; }
+    const workbook = new ExcelJS.Workbook(); await workbook.xlsx.load(await file.arrayBuffer()); const sheet = workbook.worksheets[0];
+    if (!sheet || transferKeys.some((key, i) => sheet.getRow(1).getCell(i + 1).text.replace(/\s*\*$/, '') !== key)) throw new Error();
+    // 部分成功语义：逐行校验，失败行不阻塞成功行；错误行进入错误数据工作簿。
+    const additions = new Map<string, LibraryRecord>(); const numbers = new Set(rows.value.flatMap(r => r.entries.map(e => e.number)));
+    const errorRows: (string | number)[][] = [transferKeys.concat()];
+    let total = 0; let failed = 0;
+    const conflict = new Map<string, LibraryRecord>();
+    sheet.eachRow((line, index) => {
+      if (index === 1) return;
+      const values = Object.fromEntries(transferKeys.map((key, i) => [key, line.getCell(i + 1).text.trim()])) as TransferRow;
+      const rowValues = transferKeys.map(key => values[key]);
+      total += 1;
+      const reason = importRowError(values, numbers) || (additions.get(values.id) && (additions.get(values.id)!.project !== values.project || additions.get(values.id)!.name !== values.name || additions.get(values.id)!.status !== values.status) ? 'conflict' : '') || (conflict.has(values.regulation) ? 'regulation-duplicate' : '');
+      if (reason) { failed += 1; errorRows.push([...rowValues, reason]); return; }
+      let row = additions.get(values.id);
+      if (!row) { row = { id: values.id, name: values.name, project: values.project, status: values.status as LibraryStatus, entries: [], history: [], events: [] }; appendLibraryEvent(row, 'import', MOCK_CURRENT_USER.name); additions.set(values.id, row); }
+      row.entries.push({ regulation: values.regulation, number: values.number, issuer: values.issuer, agency: values.agency, issued: values.issued, expires: values.expires, file: null });
+      numbers.add(values.number); conflict.set(values.regulation, row);
+    });
+    if (!total) throw new Error();
+    if (additions.size) { rows.value.unshift(...additions.values()); page.value = 1; }
+    const now = new Date();
+    const errorBlob = failed ? await makeErrorWorkbook(errorRows) : undefined;
+    taskCenter.addImportTask({
+      id: `imp-${now.getTime()}`, module: 'certificates', fileStamp: `${now.getFullYear()}${pad2(now.getMonth() + 1)}${pad2(now.getDate())}`,
+      operator: MOCK_CURRENT_USER.name, time: clockText(now), status: 'processing', progress: 80, total, ok: total - failed, fail: failed,
+      errorUrl: errorBlob ? URL.createObjectURL(errorBlob) : undefined, errorName: failed ? `${label('exportFile')}_导入错误数据_${now.toISOString().slice(0, 10)}_${stampText(now).slice(8)}.xlsx` : undefined,
+    });
+    importOpen.value = false;
+    Message.success(label('imported'));
+    taskCenter.open('import');
+  } catch { Message.error(label('transferError')); } finally { importing.value = false; }
 }
-function openTransfer(mode: 'import' | 'export') { transferMode.value = mode; transferError.value = ''; transferFile.value = undefined; transferOpen.value = true; }
+async function makeErrorWorkbook(errorRows: (string | number)[][]): Promise<Blob> {
+  const workbook = new ExcelJS.Workbook(); const sheet = workbook.addWorksheet('Errors');
+  for (const row of errorRows) sheet.addRow(row);
+  return new Blob([await workbook.xlsx.writeBuffer() as BlobPart], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+}
+function requestExport() {
+  if (exporting.value) return;
+  if (!results.value.length) { Message.info(t('sections.exportEmpty')); return; }
+  exportOpen.value = true;
+}
+async function confirmExport() {
+  if (exporting.value || !results.value.length) return;
+  exporting.value = true;
+  try {
+    const workbook = new ExcelJS.Workbook(); const sheet = workbook.addWorksheet('Certificates');
+    sheet.addRow(visibleFields.value.map(listLabel));
+    for (const row of results.value) sheet.addRow(visibleFields.value.map(key => cellText(row, key)));
+    const blob = new Blob([await workbook.xlsx.writeBuffer() as BlobPart], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+    const now = new Date();
+    taskCenter.addDownloadTask({
+      id: `certificate-${now.getTime()}`, module: 'certificates', fileStamp: stampText(now), operator: MOCK_CURRENT_USER.name,
+      time: clockText(now), status: 'processing', progress: 92, fileUrl: URL.createObjectURL(blob), fileName: `${label('exportFile')}_${now.toISOString().slice(0, 10)}.xlsx`,
+    });
+    exportOpen.value = false;
+    Message.success(t('sections.exportCreated'));
+    taskCenter.open('download');
+  } catch { Message.error(t('sections.exportFailed')); } finally { exporting.value = false; }
+}
 </script>
 
 <template>
@@ -286,7 +384,7 @@ function openTransfer(mode: 'import' | 'export') { transferMode.value = mode; tr
       </form>
       <section class="list-region" :aria-label="label('list')">
         <div class="list-toolbar">
-          <div class="toolbar-actions"><a-button type="primary" @click="router.push(`${base}/new`)"><template #icon><IconPlus /></template>{{ label('new') }}</a-button><a-button class="app-btn-neutral" @click="openTransfer('import')"><template #icon><IconUpload /></template>{{ label('import') }}</a-button><a-button class="app-btn-neutral" :disabled="!results.length" @click="openTransfer('export')"><template #icon><IconDownload /></template>{{ label('export') }}</a-button></div>
+          <div class="toolbar-actions"><a-button type="primary" @click="router.push(`${base}/new`)"><template #icon><IconPlus /></template>{{ label('new') }}</a-button><a-button class="app-btn-neutral" @click="openImport"><template #icon><IconUpload /></template>{{ label('import') }}</a-button><a-button class="app-btn-neutral" @click="requestExport"><template #icon><IconDownload /></template>{{ label('export') }}</a-button></div>
           <div class="toolbar-actions toolbar-settings">
             <a-select v-model="perspective" class="perspective-select" :aria-label="label('perspective')"><a-option value="submitter">{{ label('submitterView') }}</a-option><a-option value="approver">{{ label('approverView') }}</a-option></a-select>
             <ColumnSettingsPopover v-model:visible="columnsOpen" :items="columnItems" :default-items="defaultColumnItems" :title="label('columnSettings')" :list-aria-label="label('columnSettings')" :show-label="label('show')" :restore-label="label('restore')" @change="changeColumns">
@@ -347,8 +445,8 @@ function openTransfer(mode: 'import' | 'export') { transferMode.value = mode; tr
           <a-empty v-if="!editing && !regulationRows.length" :description="label('emptyRegulations')" />
           <template v-if="!editing">
             <section v-for="(entry, index) in regulationRows" :key="entry.key" class="entry" :class="`entry-${index}`">
-              <h3>{{ entry.regulation }}</h3>
               <dl class="app-detail-list certificate-facts">
+                <div class="app-detail-row"><dt class="app-detail-label">{{ label('regulation') }}</dt><dd class="app-detail-value">{{ entry.regulation || '—' }}</dd></div>
                 <div class="app-detail-row"><dt class="app-detail-label">{{ label('regulationName') }}</dt><dd class="app-detail-value">{{ entry.regulationName || '—' }}</dd></div>
                 <div class="app-detail-row"><dt class="app-detail-label">{{ label('number') }}</dt><dd class="app-detail-value">{{ entry.number || '—' }}</dd></div>
                 <div class="app-detail-row"><dt class="app-detail-label">{{ label('name') }}</dt><dd class="app-detail-value">{{ entry.name || '—' }}</dd></div>
@@ -357,7 +455,7 @@ function openTransfer(mode: 'import' | 'export') { transferMode.value = mode; tr
                 <div class="app-detail-row"><dt class="app-detail-label">{{ label('agency') }}</dt><dd class="app-detail-value">{{ entry.agency || '—' }}</dd></div>
                 <div class="app-detail-row"><dt class="app-detail-label">{{ label('issued') }}</dt><dd class="app-detail-value">{{ entry.issued || '—' }}</dd></div>
                 <div class="app-detail-row"><dt class="app-detail-label">{{ label('expires') }}</dt><dd class="app-detail-value">{{ entry.expires || '—' }}</dd></div>
-                <div class="app-detail-row"><dt class="app-detail-label">{{ label('certificateFile') }}</dt><dd class="app-detail-value"><a-link v-if="entry.file" @click="download(entry)">{{ entry.file.name }}</a-link><template v-else>—</template></dd></div>
+                <div class="app-detail-row"><dt class="app-detail-label">{{ label('certificateFile') }}</dt><dd class="app-detail-value"><span v-if="entry.file" class="file-actions"><span class="file-name-unit"><IconFilePdf class="file-type-icon" aria-hidden="true" /><span class="file-name-text">{{ entry.file.name }}</span></span><a-tooltip :content="t('archive.preview')"><button type="button" class="file-action-btn" :aria-label="`${t('archive.preview')} ${entry.file.name}`" @click="previewFile(entry)"><IconEye /></button></a-tooltip><a-tooltip :content="t('archive.download')"><button type="button" class="file-action-btn" :aria-label="`${t('archive.download')} ${entry.file.name}`" @click="download(entry)"><IconDownload /></button></a-tooltip></span><template v-else>—</template></dd></div>
                 <div class="app-detail-row"><dt class="app-detail-label">{{ label('technical') }}</dt><dd class="app-detail-value"><div v-if="entry.technical.length" class="related-records"><router-link v-for="related in entry.technical" :key="related.id" :to="`/tasks/technical/${related.id}`">{{ related.id }}</router-link></div><template v-else>—</template></dd></div>
                 <div class="app-detail-row"><dt class="app-detail-label">{{ label('testing') }}</dt><dd class="app-detail-value"><div v-if="entry.testing.length" class="related-records"><router-link v-for="related in entry.testing" :key="related.id" :to="`/tasks/testing/${related.id}`">{{ related.id }}</router-link></div><template v-else>—</template></dd></div>
                 <div class="app-detail-row"><dt class="app-detail-label">{{ label('report') }}</dt><dd class="app-detail-value"><div v-if="entry.report.length" class="related-records"><router-link v-for="related in entry.report" :key="related.id" :to="`/tasks/reports/${related.id}`">{{ related.id }}</router-link></div><template v-else>—</template></dd></div>
@@ -397,6 +495,13 @@ function openTransfer(mode: 'import' | 'export') { transferMode.value = mode; tr
       </template>
       <a-empty v-else :description="label('notFound')"><a-button @click="router.push(base)">{{ label('back') }}</a-button></a-empty>
     </template>
+    <a-modal :visible="previewOpen" :title="previewName || t('archive.previewTitle')" :width="880" :mask-closable="true" :esc-to-close="true" class="certificate-preview-modal" @cancel="closePreview">
+      <div class="preview-body">
+        <div v-if="previewFailed" class="preview-state">{{ t('archive.previewError') }}</div>
+        <component :is="OfficePdf" v-else-if="previewUrl" :src="previewUrl" class="preview-frame" @error="onPreviewError" />
+      </div>
+      <template #footer><a-button @click="closePreview">{{ t('archive.close') }}</a-button></template>
+    </a-modal>
     <a-modal :visible="!!approval" :width="560" :title="label(approval === 'completed' ? 'approve' : 'reject')" :aria-label="approvalLabel" :mask-closable="false" :esc-to-close="!busy" :closable="!busy" @cancel="closeApproval">
       <a-form :model="{ approvalOpinion }" layout="vertical">
         <a-form-item :required="approval === 'rejected'" :validate-status="approvalError ? 'error' : undefined" :help="approvalError ? t('vehicleApproval.required', { field: approvalLabel }) : undefined">
@@ -406,12 +511,34 @@ function openTransfer(mode: 'import' | 'export') { transferMode.value = mode; tr
       </a-form>
       <template #footer><a-space><a-button class="app-btn-neutral" :disabled="busy" @click="closeApproval">{{ label('cancel') }}</a-button><a-button type="primary" :loading="busy" @click="confirmApproval">{{ t('designSystem.confirm') }}</a-button></a-space></template>
     </a-modal>
-    <ConfirmDialog v-model:visible="confirm" :title="confirmTitle" :unsaved="unsaved" @confirm="pending(); confirm = false" />
-    <a-modal :visible="transferOpen" :title="label(transferMode)" :width="'min(560px, calc(100vw - 32px))'" :ok-loading="busy" :mask-closable="!busy" :esc-to-close="!busy" :closable="!busy" :ok-text="label(transferMode)" :cancel-text="t('designSystem.cancel')" @ok="transfer" @cancel="!busy && (transferOpen = false)">
-      <a-alert v-if="transferError" type="error">{{ transferError }}</a-alert>
-      <template v-if="transferMode === 'import'"><p>{{ label('importHint') }}</p><a-button @click="workbookExport(true)">{{ label('template') }}</a-button><input type="file" accept=".xlsx" :aria-label="label('importFile')" :disabled="busy" @change="transferFile = ($event.target as HTMLInputElement).files?.[0]" /></template>
-      <p v-else>{{ label('exportHint') }} ({{ results.length }})</p>
-    </a-modal>
+    <ConfirmDialog v-model:visible="confirm" :title="confirmTitle" :unsaved="unsaved" :plain-title="confirmPlain" @confirm="pending(); confirm = false" />
+    <!-- 批量导入抽屉（DESIGN.md · Batch import baseline）：虚线上传目标 + 注意事项编号块 + 预生成模版，固定 取消/导入 footer。 -->
+    <a-drawer :visible="importOpen" :title="t('templateImport.title')" :width="560" :mask-closable="!importing" :esc-to-close="!importing" :closable="!importing" class="certificate-import-drawer" @cancel="!importing && (importOpen = false)">
+      <div class="certificate-import-block">
+        <a-upload draggable :disabled="importing" :auto-upload="false" :limit="1" :file-list="importFiles" :show-file-list="false" accept=".xlsx" @change="onImportFilesChange">
+          <template #upload-button>
+            <div class="certificate-import-target"><IconFolder class="import-folder" /><p v-if="importFiles.length" class="selected-filename">{{ importFiles[0]?.file?.name }}</p><p>{{ t('templateImport.hint') }}</p><a-button type="primary" :disabled="importing">{{ t(importFiles.length ? 'templateImport.reupload' : 'templateImport.upload') }}</a-button></div>
+          </template>
+        </a-upload>
+        <div class="certificate-import-notes"><h3>{{ t('templateImport.notes') }}</h3><ol><li v-for="key in IMPORT_NOTE_KEYS" :key="key">{{ label(key) }}</li></ol></div>
+        <a-button type="text" :disabled="!importTemplateBlob || importing" @click="downloadImportTemplate"><template #icon><IconDownload /></template>{{ label('template') }}</a-button>
+      </div>
+      <template #footer><a-button class="app-btn-neutral" :disabled="importing" @click="importOpen = false">{{ label('cancel') }}</a-button><a-button type="primary" :loading="importing" @click="confirmImport">{{ label('import') }}</a-button></template>
+    </a-drawer>
+    <!-- 导出确认弹窗（DESIGN.md · Batch export baseline）：共享 ConfirmDialog，两行左对齐说明。 -->
+    <ConfirmDialog
+      :visible="exportOpen"
+      icon="info"
+      :title="t('sections.exportNotice.title')"
+      :description="[label('exportLine1'), t('sections.exportNotice.line2')]"
+      :cancel-text="t('sections.exportNotice.cancel')"
+      :ok-text="t('sections.exportNotice.confirm')"
+      :ok-loading="exporting"
+      :cancel-disabled="exporting"
+      :dismissible="!exporting"
+      @update:visible="exportOpen = $event"
+      @confirm="confirmExport"
+    />
   </main>
 </template>
 
@@ -469,7 +596,19 @@ h2 { font-size: var(--mt-ds-font-title); line-height: var(--mt-ds-line-title); f
 .processing-timeline p { margin: var(--mt-ds-space-2) 0 0; line-height: var(--mt-ds-line-body); overflow-wrap: anywhere; }
 .event-comment { color: var(--color-text-2); white-space: pre-wrap; }
 .processing-timeline :deep(.arco-timeline-item:not(.arco-timeline-item-last)) { padding-bottom: var(--mt-ds-space-6); }
-h3 { font-size: var(--mt-ds-font-body); font-weight: var(--mt-ds-weight-body); margin: 0 0 var(--mt-ds-space-3); }
+/* 证书文件参数：[文件类型图标] 文件名 [预览][下载] 图标操作，单元间距 8px。 */
+.file-actions { display: inline-flex; align-items: center; gap: var(--mt-ds-space-2); flex-wrap: wrap; min-width: 0; }
+.file-name-unit { display: inline-flex; align-items: center; gap: var(--mt-ds-space-1); min-width: 0; color: var(--color-text-1); }
+.file-type-icon { flex-shrink: 0; font-size: 16px; color: var(--app-color-primary); }
+.file-name-text { overflow-wrap: anywhere; }
+.file-action-btn { display: inline-grid; width: 24px; height: 24px; padding: 0; place-items: center; border: 0; border-radius: var(--mt-ds-control-radius); background: transparent; color: var(--app-color-primary); font-size: 14px; cursor: pointer; }
+.file-action-btn:hover { background: var(--color-fill-2); }
+.file-action-btn:focus-visible { outline: 2px solid var(--app-accent); outline-offset: 2px; }
+/* PDF 预览弹窗：预览器需确定高度，横向溢出留在预览区内。 */
+.preview-body { height: min(62vh, 620px); overflow: auto; background: var(--app-surface); }
+.preview-body :deep(.vue-office-pdf) { height: 100%; min-height: 420px; }
+.preview-frame { height: 100%; }
+.preview-state { display: flex; align-items: center; justify-content: center; height: 100%; color: var(--color-text-3); font-size: 14px; }
 .file-field { display: grid; gap: var(--mt-ds-space-2); min-width: 0; overflow-wrap: anywhere; }
 .file-field input, .editor :deep(.arco-picker) { max-width: 100%; }
 .relations a { color: var(--app-color-primary); text-decoration: none; }
@@ -481,4 +620,21 @@ h3 { font-size: var(--mt-ds-font-body); font-weight: var(--mt-ds-weight-body); m
 .uploaded-file :deep(.arco-link) { min-width: 0; overflow-wrap: anywhere; }
 .uploaded-file :deep(.arco-btn) { flex-shrink: 0; }
 .certificate-edit-table :deep(.arco-picker) { width: 100%; }
+/* 批量导入抽屉（DESIGN.md · Batch import baseline）：灰底画布 + 白色内容块 + 56px 头部 + 固定 footer。 */
+:global(.certificate-import-drawer .arco-drawer) { max-width: 100vw; }
+:global(.certificate-import-drawer .arco-drawer-header) { height: 56px; flex: none; padding: 0 16px; background: var(--app-surface); }
+:global(.certificate-import-drawer .arco-drawer-title) { font-size: var(--mt-ds-font-title); line-height: var(--mt-ds-line-title); font-weight: var(--mt-ds-weight-title); }
+:global(.certificate-import-drawer .arco-drawer-body) { background: var(--app-fill-1); padding: 16px; overflow-y: auto; min-height: 0; }
+:global(.certificate-import-drawer .arco-drawer-footer) { background: var(--app-surface); padding: 16px; display: flex; justify-content: flex-end; gap: 8px; flex: none; }
+.certificate-import-block { background: var(--app-surface); padding: 16px; display: flex; flex-direction: column; gap: 16px; border-radius: var(--mt-ds-control-radius); min-width: 0; }
+.certificate-import-block :deep(.arco-upload) { width: 100%; }
+.certificate-import-target { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; padding: 32px 16px; border: 1px dashed var(--app-control-border); background: var(--app-surface); cursor: pointer; }
+.certificate-import-target p { margin: 0; overflow-wrap: anywhere; }
+.certificate-import-target .import-folder { font-size: 32px; color: var(--app-color-primary); }
+.certificate-import-target .selected-filename { max-width: 100%; overflow-wrap: anywhere; }
+.certificate-import-target :deep(.arco-btn) { width: auto; }
+.certificate-import-block > :deep(.arco-btn) { align-self: flex-start; padding-left: 0; }
+.certificate-import-notes { padding: 16px; background: var(--app-primary-light-bg); }
+.certificate-import-notes h3 { margin: 0 0 8px; font-size: var(--mt-ds-font-body); }
+.certificate-import-notes ol { margin: 0; padding-left: 20px; display: grid; gap: 4px; color: var(--color-text-2); font-size: var(--mt-ds-font-body); line-height: var(--mt-ds-line-body); }
 </style>

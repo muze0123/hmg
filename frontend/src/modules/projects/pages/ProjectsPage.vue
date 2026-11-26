@@ -58,18 +58,21 @@ function executeTask(record: Project) {
   executionOpen.value = true;
 }
 
-/* 状态驱动的操作（需求4）：详情恒显；执行仅待处理（在复制前）；编辑仅待提交/已撤回（在复制前）；
-   审批中可撤回；复制恒置末位，已撤回显示详情、编辑、复制。
+/* 状态驱动的操作：详情恒显；执行仅待处理；审批中可撤回。
+   待提交显示编辑；新建及复制入口暂时注释，相关处理及抽屉保留以便恢复。
    分项类型任务按派生状态（recordStatus）派发操作。 */
 function rowActions(record: Project): { key: string; label: string; onClick: () => void }[] {
   const status = recordStatus(record);
   const actions: { key: string; label: string; onClick: () => void }[] = [
     { key: 'view', label: t('projects.view'), onClick: () => router.push(`/projects/${record.id}`) },
   ];
-  if (status === 'pending') actions.push({ key: 'execute', label: t('projects.execute'), onClick: () => executeTask(record) });
-  if (status === 'submitting' || status === 'withdrawn' || status === 'rejected') actions.push({ key: 'edit', label: t('projects.edit'), onClick: () => openEdit(record.id) });
+  if (status === 'pending' || status === 'withdrawn') actions.push({ key: 'execute', label: t('projects.execute'), onClick: () => executeTask(record) });
+  // 恢复待提交任务的编辑入口；其他编辑条件保留注释以便后续调整。
+  // 原条件：status === 'submitting' || status === 'withdrawn' || status === 'rejected'
+  if (status === 'submitting') actions.push({ key: 'edit', label: t('projects.edit'), onClick: () => openEdit(record.id) });
   if (status === 'reviewing') actions.push({ key: 'withdraw', label: t('taskWithdrawal.action'), onClick: () => requestWithdrawal(record) });
-  actions.push({ key: 'copy', label: t('projects.copy'), onClick: () => openCopy(record) });
+  // 暂停列表复制入口，保留代码供后续恢复。
+  // actions.push({ key: 'copy', label: t('projects.copy'), onClick: () => openCopy(record) });
   return actions;
 }
 
@@ -338,7 +341,10 @@ const detailFields = computed<[string, string][]>(() => {
   </form>
   <section class="list-panel" role="region" :aria-label="t('projects.title')">
     <div class="list-toolbar">
+      <h2 class="list-title">{{ t('projectList.title') }}</h2>
+      <!-- 暂停新建任务入口，保留代码供后续恢复。
       <a-button type="primary" @click="openCreate"><template #icon><IconPlus /></template>{{ t('projects.new') }}</a-button>
+      -->
       <ColumnSettingsPopover
         v-model:visible="columnSettingsOpen"
         :items="columnSettingsItems"
@@ -392,7 +398,7 @@ const detailFields = computed<[string, string][]>(() => {
 
 <a-empty v-else-if="showDetail && !found" :description="t('projects.missing')" />
 
-<ConfirmDialog v-model:visible="withdrawalVisible" :title="t('taskWithdrawal.confirm')" :description="t('taskWithdrawal.description', { name: withdrawalRecord?.name || '' })" :ok-text="t('taskWithdrawal.action')" @confirm="confirmWithdrawal" />
+<ConfirmDialog plain-title v-model:visible="withdrawalVisible" :title="t('taskWithdrawal.confirm')" :description="t('taskWithdrawal.description', { name: withdrawalRecord?.name || '' })" :ok-text="t('taskWithdrawal.action')" @confirm="confirmWithdrawal" />
 <TaskExecutionDrawer v-if="executionOpen" v-model:visible="executionOpen" :task-id="executingId" />
 <TaskCreateDrawer
   v-model:visible="drawerOpen"
@@ -408,6 +414,7 @@ const detailFields = computed<[string, string][]>(() => {
 .filters { padding: var(--mt-ds-space-4); margin-bottom: var(--mt-ds-space-3); background: var(--mt-ds-surface); border-radius: var(--mt-ds-control-radius); }
 /* 数据列表：独立白色业务面板 + 16px 内容 inset */
 .list-panel { min-width: 0; padding: var(--mt-ds-space-4); background: var(--mt-ds-surface); border-radius: var(--mt-ds-control-radius); }
+.list-title { margin: 0; font-size: var(--mt-ds-font-title); line-height: var(--mt-ds-line-title); font-weight: var(--mt-ds-weight-title); }
 .list-toolbar { display: flex; align-items: center; justify-content: space-between; gap: var(--mt-ds-space-3); margin-bottom: var(--mt-ds-space-4); }
 .table-region { min-width: 0; }
 .projects-icon-button { display: inline-grid; width: 32px; height: 32px; padding: 0; place-items: center; }

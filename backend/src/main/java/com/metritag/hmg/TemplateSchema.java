@@ -22,6 +22,7 @@ public record TemplateSchema(
   @Min(1) @Max(100000) Integer maxLength, @Size(max=50) List<@Valid Column> columns) {}
  public record Column(@NotBlank String id, @NotBlank String label, @NotNull Format format, boolean required) {}
  public void checkDefinition() {
+  TaskTree.require(kind == TaskTree.Kind.VEHICLE || regulationId != null && !regulationId.isBlank(), "Regulation is required for this template kind");
   Set<String> ids = new HashSet<>();
   for (Field field : fields) {
    TaskTree.require(ids.add(field.id()), "Duplicate field ID");

@@ -27,10 +27,12 @@ public class TaskService {
  }
  public record Create(@NotBlank @Size(max=200) String name, @Size(max=100) String vehicleId,
    @NotBlank @Size(max=100) String workflowVersion, @NotEmpty List<@NotBlank String> reviewers) {}
- public record Configure(@NotNull @Min(0) Long version, @NotEmpty List<@NotNull @jakarta.validation.Valid Child> children, String vehicleId) {}
+ public record Configure(@NotNull @Min(0) Long version, @NotEmpty List<@NotNull @jakarta.validation.Valid Child> children,
+   String vehicleId, String workflowInstanceId, String workflowRevision) {}
  public record Child(@NotNull Kind kind, String regulationId, String templateVersionId,
    @NotBlank String executor, @NotEmpty List<@NotBlank String> reviewers) {}
- public record Command(@NotNull @Min(0) Long version, Map<String, Object> values, String comment) {}
+ public record Command(@NotNull @Min(0) Long version, Map<String, Object> values, String comment,
+   boolean workflowDriven) {}
  public record View(String id, long version, TaskTree task) {}
  public java.util.List<View> list(Actor actor) { return repository.findByTenantIdOrderByIdAsc(actor.tenant()).stream().map(this::view).toList(); }
  public View get(String id, Actor actor) { return view(load(id, actor)); }
@@ -49,7 +51,7 @@ public class TaskService {
  }
  private void platformReady() {
   if (!environment.matchesProfiles("dev")) throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE,
-   "Platform identity, workflow and template adapters are not connected");
+   "Platform identity and workflow adapters are not connected");
  }
  private String hash(Object value) {
   try { return HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(encode(value).getBytes(StandardCharsets.UTF_8))); }
@@ -87,11 +89,17 @@ public class TaskService {
  public View configure(String id, String nodeId, Configure input, Actor actor) {
   platformReady();
   var row = versioned(id, input.version(), actor); var tree = tree(row); var node = editable(tree, nodeId, actor);
-  require(node.state == State.PENDING, "Configuration is immutable once execution starts");
+  tree.requireAvailable(node);
+  require(node.state == State.PENDING || node.level == Level.MAIN && node.state == State.WITHDRAWN, "Configuration is immutable once execution starts");
   require(node.level != Level.SUBTASK, "Subtasks do not have children");
+  boolean sameVehicle = input.vehicleId() == null || java.util.Objects.equals(input.vehicleId(), tree.vehicleId);
   if (node.level == Level.MAIN) {
    if (input.vehicleId() != null) tree.vehicleId = input.vehicleId();
    require(tree.vehicleId != null && !tree.vehicleId.isBlank(), "Vehicle is required");
+   if (input.workflowInstanceId() != null && !input.workflowInstanceId().isBlank())
+    node.workflowInstanceId = input.workflowInstanceId();
+   if (input.workflowRevision() != null && !input.workflowRevision().isBlank())
+    node.workflowRevision = input.workflowRevision();
   }
   Set<String> uniqueness = new HashSet<>();
   List<Node> children = new ArrayList<>();
@@ -111,9 +119,17 @@ public class TaskService {
    child.executor = config.executor(); child.reviewers = new ArrayList<>(config.reviewers());
    child.state = child.level == Level.SECTION ? State.PENDING : State.ACTIVE;
    if (child.level == Level.SUBTASK || child.kind == Kind.VEHICLE) child.templateSnapshot=templates.bind(child.templateVersionId,child.kind,child.regulationId,actor);
-   children.add(child);
+   // Reuse only exactly matching bindings. Changed assignments/templates create new work;
+   // approved values and workflow instances must not leak into a new configuration.
+   Node retained = node.children.stream().filter(old -> sameVehicle && old.kind == child.kind
+    && java.util.Objects.equals(old.regulationId, child.regulationId)
+    && java.util.Objects.equals(old.templateVersionId, child.templateVersionId)
+    && java.util.Objects.equals(old.executor, child.executor) && old.reviewers.equals(child.reviewers))
+    .findFirst().orElse(null);
+   children.add(retained != null ? retained : child);
   }
   node.children = children; node.state = State.ACTIVE;
+  if (node.level == Level.MAIN) tree.descendantsPaused = false;
   tree.record(node, "CONFIGURE", actor.user(), ""); return save(row, tree);
  }
  @Transactional
@@ -121,6 +137,7 @@ public class TaskService {
   platformReady();
   var row = versioned(id, input.version(), actor); var tree = tree(row); Node node = tree.node(nodeId);
   require(node != null, "Node not found");
+  tree.requireAvailable(node);
   switch (action) {
    case "save" -> {
     require(node.level == Level.SUBTASK && node.executor.equals(actor.user()), "Only the subtask executor may fill values");
@@ -130,6 +147,7 @@ public class TaskService {
     validator.validate(node.templateSnapshot,input.values(),false); node.valuesJson = encode(input.values());
     tree.record(node, "SAVE", actor.user(), "");
    }
+   case "submitDraft" -> tree.submitDraft(node, actor.user());
    case "submit" -> {
     if (node.level == Level.SUBTASK) {
      require(node.templateSnapshot != null,"Task template snapshot is missing");
@@ -138,7 +156,15 @@ public class TaskService {
     }
     tree.submit(node, actor.user());
    }
-   case "approve" -> tree.review(node, actor.user(), true, input.comment());
+   case "withdraw" -> tree.withdraw(node, actor.user());
+   case "void" -> tree.voidTask(node, actor.user());
+   case "approve" -> {
+    if (input.workflowDriven()) {
+     // Platform-bound nodes require a callback; local approval cannot advance them.
+     require(node.workflowInstanceId == null, "Workflow-bound nodes advance only through platform callbacks");
+    }
+    tree.review(node, actor.user(), true, input.comment());
+   }
    case "reject" -> tree.review(node, actor.user(), false, input.comment());
    default -> throw new BusinessException("Unsupported action");
   }

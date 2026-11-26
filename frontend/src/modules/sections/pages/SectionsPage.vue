@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import { sectionRegulations } from '../data/regulations';
+import { displayedTaskStatus, taskPaused } from '../../projects/data/suspension';
 import { computed, nextTick, reactive, ref, watch } from 'vue';
 import { useRouter } from 'vue-router';
 import { useI18n } from 'vue-i18n';
@@ -16,7 +18,7 @@ import { useTaskCenterStore } from '../../task-center/stores/taskCenter';
 import { makeSectionsExport } from '../data/export';
 import { MOCK_CURRENT_USER } from '../../projects/data/projects';
 import SectionExecutionDrawer from '../components/SectionExecutionDrawer.vue';
-import { saveSectionExecution, sectionPeople } from '../data/execution';
+import { saveSectionExecution, sectionPeople, withdrawSection } from '../data/execution';
 import { items, PRIORITY_CODES, STATUS_CODES, TYPE_CODES, type Item } from '../data/items';
 
 /** Execution configuration is local module state until an API contract is available. */
@@ -32,21 +34,29 @@ function fieldLabel(key: FieldKey): string {
   return t(`sections.${key}`);
 }
 function rowActions(row: Item): string[] {
-  if (row.status === 'pending') return ['execute'];
-  if (['submitting', 'rejected', 'withdrawn'].includes(row.status)) return ['edit'];
+  if (row.status === 'pending' || row.status === 'withdrawn') return ['execute'];
+  if (['rejected'].includes(row.status)) return ['edit'];
   if (row.status === 'reviewing') {
     if (row.executor === MOCK_CURRENT_USER.accountId) return ['withdraw'];
     if (row.reviewer === MOCK_CURRENT_USER.accountId) return ['review'];
   }
   return [];
 }
+const withdrawId = ref('');
+function confirmSectionWithdrawal() {
+  if (withdrawSection(withdrawId.value)) Message.success(t('taskWithdrawal.success'));
+  else Message.warning(t('taskWithdrawal.changed'));
+  withdrawId.value = '';
+}
 const executionId = ref('');
 const executionOpen = ref(false);
 const executionRecord = computed(() => items.find(row => row.id === executionId.value));
 let executionTrigger: HTMLElement | null = null;
 function openEntry(row: Item, action: string) {
+  if (taskPaused(row.project, row.status)) return;
+  if (action === 'withdraw') { withdrawId.value = row.id; return; }
   if (action === 'execute' || action === 'edit') {
-    if (row.type === 'vehicle') { saveSectionExecution(row, [], true); return; }
+    if (row.type === 'vehicle') { saveSectionExecution(row, []); return; }
     executionTrigger = document.activeElement as HTMLElement;
     executionId.value = row.id;
     executionOpen.value = true;
@@ -60,7 +70,8 @@ type RelationshipTab = typeof relationshipTabs[number];
 const activeRelationship = ref<RelationshipTab>('all');
 function matchesRelationship(row: Item, tab: RelationshipTab): boolean {
   const user = MOCK_CURRENT_USER.accountId;
-  if (tab === 'pending') return (row.executor === user && ['pending', 'submitting', 'rejected', 'withdrawn'].includes(row.status)) || (row.reviewer === user && row.status === 'reviewing');
+  if (tab === 'pending' && taskPaused(row.project, row.status)) return false;
+  if (tab === 'pending') return (row.executor === user && ['pending', 'rejected', 'withdrawn'].includes(row.status)) || (row.reviewer === user && row.status === 'reviewing');
   if (tab === 'handled') return row.handledBy.includes(user);
   if (tab === 'created') return row.creator === user;
   if (tab === 'cc') return row.ccUsers.includes(user);
@@ -73,7 +84,7 @@ const ENUM_KEYS: readonly FieldKey[] = ['priority', 'type', 'status'];
 const SELECT_KEYS: readonly FieldKey[] = [...ENUM_KEYS, 'executor', 'reviewer'];
 const DATE_KEYS: readonly FieldKey[] = ['createdAt', 'end', 'actual', 'executedAt', 'reviewedAt'];
 const FILTER_OPTIONS: Partial<Record<FieldKey, readonly string[]>> = {
-  priority: PRIORITY_CODES, type: TYPE_CODES, status: STATUS_CODES,
+  priority: PRIORITY_CODES, type: TYPE_CODES, status: [...STATUS_CODES, 'paused'],
 };
 function filterOptions(key: FieldKey): readonly string[] {
   if (key === 'executor' || key === 'reviewer') return [...new Set(items.map(row => row[key]))];
@@ -84,7 +95,7 @@ function filterOptionLabel(key: FieldKey, value: string): string {
     const row = items.find(row => row[key] === value);
     return row ? sectionPeople(row)[key] : value;
   }
-  return t(`sections.${value}`);
+  return value === 'paused' ? t('taskPause.status') : t(`sections.${value}`);
 }
 
 /* ---------------------------------------------- 筛选条件（DESIGN.md · Filter strip packing / List settings popover）
@@ -153,8 +164,8 @@ const sortField = ref<FieldKey | ''>('');
 const sortDirection = ref<SortDirection>('');
 
 function compareRows(a: Item, b: Item, key: FieldKey, direction: 'ascend' | 'descend'): number {
-  const x = key === 'executor' || key === 'reviewer' ? sectionPeople(a)[key] : String(a[key] ?? '');
-  const y = key === 'executor' || key === 'reviewer' ? sectionPeople(b)[key] : String(b[key] ?? '');
+  const x = key === 'executor' || key === 'reviewer' ? sectionPeople(a)[key] : key === 'status' ? displayedTaskStatus(a.project, a.status) : String(a[key] ?? '');
+  const y = key === 'executor' || key === 'reviewer' ? sectionPeople(b)[key] : key === 'status' ? displayedTaskStatus(b.project, b.status) : String(b[key] ?? '');
   // 空值（如未填写的实际结束日期）恒排在末尾，不随升降序翻转
   if (!x && y) return 1;
   if (x && !y) return -1;
@@ -191,7 +202,8 @@ const resultRows = computed<Item[]>(() => {
   const rows = items.filter(row => matchesRelationship(row, activeRelationship.value) && FILTER_ORDER.every((key) => {
     const value = applied.value[key];
     if (!value) return true;
-    const cell = String(row[key] ?? '');
+    if (key === 'law') return sectionRegulations(row).some(law => law.toLowerCase().includes(value.toLowerCase()));
+    const cell = String(key === 'status' ? displayedTaskStatus(row.project, row.status) : row[key] ?? '');
     return DATE_KEYS.includes(key) ? cell.slice(0, 10) === value
       : SELECT_KEYS.includes(key) ? cell === value
       : cell.toLowerCase().includes(value.toLowerCase());
@@ -208,6 +220,8 @@ const pagedRows = computed(() => resultRows.value.slice((page.value - 1) * pageS
 watch(resultRows, () => { page.value = 1; });
 
 function cellText(row: Item, key: string): string {
+  if (key === 'law') return sectionRegulations(row).join('、') || '—';
+  if (key === 'status' && taskPaused(row.project, row.status)) return t('taskPause.status');
   if (key === 'executor' || key === 'reviewer') return sectionPeople(row)[key] || '—';
   const value = String(row[key as keyof Item] ?? '');
   if (ENUM_KEYS.includes(key as FieldKey)) return String(t(`sections.${value}`));
@@ -365,15 +379,22 @@ async function confirmExport() {
         <template #field="{ record, column }">
           <AppStatusTag
             v-if="column.dataIndex === 'status' || column.dataIndex === 'priority'"
-            :role="column.dataIndex === 'priority' ? (record.priority === 'urgent' ? 'danger' : record.priority === 'high' ? 'warning' : record.priority === 'medium' ? 'info' : 'neutral') : statusRole(String(record.status), 'sections')"
+            :role="column.dataIndex === 'priority' ? (record.priority === 'urgent' ? 'danger' : record.priority === 'high' ? 'warning' : record.priority === 'medium' ? 'info' : 'neutral') : statusRole(displayedTaskStatus(record.project, record.status), 'sections')"
             :label="cellText(record as Item, String(column.dataIndex))"
           />
-          <span v-else>{{ cellText(record as Item, String(column.dataIndex)) }}</span>
+          <span v-else-if="column.dataIndex === 'law' && sectionRegulations(record).length > 1" class="regulation-summary">
+            <span>{{ sectionRegulations(record)[0] }}</span>
+            <a-tooltip>
+              <template #content><div v-for="law in sectionRegulations(record)" :key="law">{{ law }}</div></template>
+              <a-tag class="regulation-count" size="small" tabindex="0" :aria-label="cellText(record, 'law')">+{{ sectionRegulations(record).length }}</a-tag>
+            </a-tooltip>
+          </span>
+          <span v-else>{{ cellText(record as Item, String(column.dataIndex)) }}</span><small v-if="column.dataIndex === 'status' && taskPaused(record.project, record.status)" class="pause-reason" :title="`${t('taskPause.previous')}: ${t(`sections.${record.status}`)}`">{{ t('taskPause.reason') }}</small>
         </template>
         <template #actions="{ record }">
           <div class="row-actions">
             <button type="button" class="row-action" @click="router.push(`/sections/${record.id}`)">{{ t('sections.view') }}</button>
-            <button v-for="action in rowActions(record as Item)" :key="action" type="button" class="row-action" @click="openEntry(record as Item, action)">{{ t(`sections.${action}`) }}</button>
+            <button v-for="action in rowActions(record as Item)" :key="action" type="button" :disabled="taskPaused(record.project, record.status)" :title="taskPaused(record.project, record.status) ? t('taskPause.disabled') : undefined" class="row-action" @click="openEntry(record as Item, action)">{{ t(`sections.${action}`) }}</button>
           </div>
         </template>
         <template #empty>
@@ -384,6 +405,7 @@ async function confirmExport() {
       <AppPagination v-model:current="page" v-model:page-size="pageSize" :total="resultRows.length" />
     </section>
 
+    <ConfirmDialog plain-title :visible="!!withdrawId" :title="t('taskWithdrawal.confirm')" @update:visible="!$event && (withdrawId = '')" @confirm="confirmSectionWithdrawal" />
     <SectionExecutionDrawer v-if="executionOpen && executionRecord" :key="executionId" v-model:visible="executionOpen" :item="executionRecord" />
     <ConfirmDialog
       :visible="exportOpen"
@@ -435,4 +457,9 @@ async function confirmExport() {
 .row-action:focus-visible { outline: 2px solid var(--app-color-primary); outline-offset: 2px; }
 .relationship-tabs { flex: 0 0 100%; min-width: 0; width: 100%; }
 .relationship-tabs :deep(.arco-tabs-content) { display: none; }
+.pause-reason { display: block; color: var(--color-text-3); }
+.row-action:disabled { color: var(--color-text-4); cursor: not-allowed; }
+.regulation-summary { display: inline-flex; align-items: center; gap: var(--mt-ds-space-2); white-space: nowrap; }
+.regulation-count { flex-shrink: 0; font-weight: var(--mt-ds-weight-body); cursor: default; }
+.regulation-count:focus-visible { outline: 2px solid var(--app-accent); outline-offset: 2px; }
 </style>

@@ -1,3 +1,5 @@
+import { taskPaused, requireTaskAvailable } from '../../projects/data/suspension';
+import { sectionRegulations } from './regulations';
 import { items, type Item, type SectionEntry } from './items';
 import { MOCK_CURRENT_USER, people, projects } from '../../projects/data/projects';
 import { technicalTasks } from '../../technical/data/technical';
@@ -7,7 +9,7 @@ import { certificates } from '../../certificates/data/certificates';
 
 // Existing module records provide selectable regulation IDs until a regulation-library API exists.
 export function regulationOptions(): string[] {
-  return [...new Set([...items.map(row => row.law), ...technicalTasks.map(row => row.regulation),
+  return [...new Set([...items.flatMap(sectionRegulations), ...technicalTasks.map(row => row.regulation),
     ...testTasks.map(row => row.regulation), ...reports.map(row => row.regulation),
     ...certificates.value.map(row => row.regulation)])].filter(Boolean).sort();
 }
@@ -18,12 +20,13 @@ export function sectionPeople(item: Item) {
   const name = (id: string) => accounts.find(account => account.accountId === id)?.name ?? id;
   return { executor: task?.executor || name(item.executor), reviewer: task?.reviewer || name(item.reviewer) };
 }
-export function saveSectionExecution(item: Item, entries: SectionEntry[], submit: boolean) {
-  if (!['pending', 'submitting', 'rejected', 'withdrawn'].includes(item.status)) return false;
+export function saveSectionExecution(item: Item, entries: SectionEntry[], submit = true) {
+  if (taskPaused(item.project, item.status)) return false;
+  if (!['pending', 'rejected', 'withdrawn'].includes(item.status)) return false;
   const time = new Intl.DateTimeFormat('sv-SE', { timeZone: 'Asia/Shanghai', dateStyle: 'short', timeStyle: 'medium' }).format(new Date());
   item.entries = entries.map(row => ({ ...row }));
   item.executionSubmitted = submit;
-  item.status = submit ? 'active' : 'submitting';
+  if (submit) item.status = 'active';
   if (submit) { item.executedAt = time; item.reviewedAt = ''; }
   if (submit && !item.handledBy.includes(MOCK_CURRENT_USER.accountId)) item.handledBy.push(MOCK_CURRENT_USER.accountId);
   const parent = projects.value.find(task => task.id === item.project);
@@ -41,7 +44,7 @@ export function saveSectionExecution(item: Item, entries: SectionEntry[], submit
 export function updateSectionEntryApproval(itemId: string, entryId: string, approval: SectionEntry['approval']) {
   const item = items.find(row => row.id === itemId);
   const entry = item?.entries?.find(row => row.id === entryId);
-  if (!item || !entry || !item.executionSubmitted || item.status !== 'active') return;
+  if (!item || taskPaused(item.project, item.status) || !entry || !item.executionSubmitted || item.status !== 'active') return;
   entry.approval = approval;
   if (item.entries?.length && item.entries.every(row => row.approval === 'completed')) {
     item.status = 'reviewing';
@@ -52,7 +55,7 @@ export function updateSectionEntryApproval(itemId: string, entryId: string, appr
 // Section-level approvals are separate from each regulation template's approval.
 export function approveSection(itemId: string) {
   const item = items.find(row => row.id === itemId);
-  if (!item || item.status !== 'reviewing') return false;
+  if (!item || taskPaused(item.project, item.status) || item.status !== 'reviewing') return false;
   item.status = 'completed';
   item.reviewedAt = new Intl.DateTimeFormat('sv-SE', { timeZone: 'Asia/Shanghai', dateStyle: 'short', timeStyle: 'medium' }).format(new Date());
   item.actual = item.reviewedAt.slice(0, 10);
@@ -64,6 +67,20 @@ export function approveSection(itemId: string) {
   if (siblings.length && siblings.every(row => row.status === 'completed')) {
     parent.sectionApprovalReady = true;
     parent.status = 'reviewing';
+  }
+  return true;
+}
+
+export function withdrawSection(itemId: string) {
+  const item = items.find(row => row.id === itemId);
+  if (!item || taskPaused(item.project, item.status) || item.status !== 'reviewing' || item.executor !== MOCK_CURRENT_USER.accountId) return false;
+  item.status = 'withdrawn';
+  const parent = projects.value.find(task => task.id === item.project);
+  const child = parent?.subTasks.find(task => task.code === taskCode(item.type));
+  if (child) child.status = 'withdrawn';
+  if (parent) {
+    parent.history ??= [];
+    parent.history.push({ id: crypto.randomUUID(), action: 'withdraw', actor: MOCK_CURRENT_USER.name, time: new Date().toLocaleString('sv-SE'), taskCodes: [taskCode(item.type)], taskName: parent.name });
   }
   return true;
 }

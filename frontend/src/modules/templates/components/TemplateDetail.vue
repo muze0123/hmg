@@ -6,12 +6,12 @@ import { Message } from '@arco-design/web-vue';
 import { IconDownload } from '@arco-design/web-vue/es/icon';
 import AppDetailList from '../../../design/components/AppDetailList.vue';
 import { tagRecords } from '../../tags/data/tags';
-import type { TemplateRecord, Entry } from '../data/templates';
+import { TEMPLATE_REFERENCE_KEYS, REF_TO_FIELD_KEY, type TemplateRecord, type Entry } from '../data/templates';
 const props = defineProps<{ record: TemplateRecord; records: TemplateRecord[] }>();
 const { t, te, locale } = useI18n();
 const checked = ref<string[]>([]); const exporting = ref(false);
-const fields = computed(() => ['name','type', ...(props.record.type === 'technical' ? ['regulationType'] : []), ...(props.record.type !== 'vehicle' ? ['regulation'] : []), 'region','country','vehicleType','version','baseVersion','description','versionNote','status','createdBy','created','updatedBy','updated']);
-function label(key: string) { return t(['regulationType','version','baseVersion','versionNote'].includes(key) ? `templateEditor.${key}` : `templates.${key}`); }
+const fields = computed(() => ['name','type', ...(props.record.type === 'technical' ? ['regulationType'] : []), ...(props.record.type !== 'vehicle' ? ['regulation'] : []), 'region','country','vehicleType','version','baseVersion', ...(TEMPLATE_REFERENCE_KEYS[props.record.type] || []), 'description','versionNote','status','createdBy','created','updatedBy','updated']);
+function label(key: string) { return t(['regulationType','version','baseVersion','versionNote','refVehicle','refTechnical','refTesting','refReport'].includes(key) ? `templateEditor.${key}` : `templates.${key}`); }
 function value(row: TemplateRecord, key: string): string {
  const raw = row[key as keyof TemplateRecord]; if (raw === undefined || raw === '') return '—';
  const text = String(raw);
@@ -19,14 +19,33 @@ function value(row: TemplateRecord, key: string): string {
  if (key === 'status') return t(`templates.${text}`);
  if (key === 'regulationType') return t(text === 'basic' ? 'templateEditor.basicRegulation' : 'templateEditor.single');
  if (key === 'baseVersion') return props.records.find(r => r.id === text)?.name || text;
+ if (key.startsWith('ref')) { const up = props.records.find(r => r.id === text); return up ? `${up.name}  ${up.version}` : text; }
  const prefix = ({region:'regions',country:'countries',vehicleType:'vehicleTypes'} as Record<string,string>)[key];
  if (prefix && te(`templates.${prefix}.${text}`)) return t(`templates.${prefix}.${text}`);
  if (key === 'country' && /^[A-Z]{2}$/.test(text)) return new Intl.DisplayNames([locale.value],{type:'region'}).of(text) || text;
  return text;
 }
-const configKeys = computed(() => props.record.type === 'vehicle' ? ['number','name','format','tag','columns'] : ['number','name','format','columns', ...(props.record.type === 'technical' ? ['tag','partsCertificate'] : ['technical', ...(['report','certificate'].includes(props.record.type) ? ['testing'] : []), ...(props.record.type === 'certificate' ? ['report'] : []), 'note'])]);
+const configKeys = computed(() => {
+ if (props.record.type === 'vehicle') return ['number','name','format','tag','columns'];
+ if (props.record.type === 'technical') return ['number','name','format','columns','tag','partsCertificate','vehicle'];
+ if (props.record.type === 'testing') return ['number','name','format','columns','technical','note'];
+ if (props.record.type === 'report') return ['number','name','format','columns','technical','testing','note'];
+ return ['number','name','format','columns','technical','report','note'];
+});
 function configLabel(key: string) { const suffix = ({name: 'configItem', format: 'configFormat'} as Record<string,string>)[key] || key; return t(`templateEditor.${suffix}`); }
-function cell(entry: Entry, key: string): string { const raw = entry[key as keyof Entry]; if (!raw || (Array.isArray(raw) && !raw.length)) return '—'; if (key === 'format') return t(raw === 'ordered' ? 'templateEditor.ordered' : `templates.${raw}`); if (key === 'columns') return (entry.columns || []).join(' / ') || '—'; if (key === 'tag') return tagRecords.value.find(r=>r.id===raw)?.name || String(raw); if (key === 'partsCertificate') return t(`templateEditor.${raw}`); if (['technical','testing','report'].includes(key)) return props.records.find(r=>r.id===raw)?.name || String(raw); return String(raw); }
+function cell(entry: Entry, key: string): string {
+ const raw = entry[key as keyof Entry]; if (!raw || (Array.isArray(raw) && !raw.length)) return '—';
+ if (key === 'format') return t(raw === 'ordered' ? 'templateEditor.ordered' : `templates.${raw}`);
+ if (key === 'columns') return (entry.columns || []).join(' / ') || '—';
+ if (key === 'tag') return tagRecords.value.find(r=>r.id===raw)?.name || String(raw);
+ if (key === 'partsCertificate') return t(`templateEditor.${raw}`);
+ if (['vehicle','technical','testing','report'].includes(key)) {
+   const refKey = REF_TO_FIELD_KEY ? Object.keys(REF_TO_FIELD_KEY).find(k => REF_TO_FIELD_KEY[k] === key) : '';
+   const upstream = refKey ? props.records.find(r => r.id === props.record[refKey as keyof TemplateRecord]) : undefined;
+   return upstream?.entries.find(e => e.id === raw)?.name || String(raw);
+ }
+ return String(raw);
+}
 const versions = computed(() => {
  const siblings = props.records.filter(r=>r.type===props.record.type && r.name===props.record.name);
  const rows = siblings.flatMap(r=>[...(r.history || []),r]);

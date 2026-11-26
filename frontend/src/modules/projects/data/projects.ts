@@ -1,4 +1,4 @@
-import { TASK_STATUSES, aggregateTaskStatus, type TaskStatus } from '../../../shared/taskLifecycle';
+import { MAIN_TASK_STATUSES, aggregateTaskStatus, type TaskStatus } from '../../../shared/taskLifecycle';
 import { ref } from 'vue';
 import { sectionSeeds } from '../../sections/data/fixtures';
 
@@ -11,7 +11,7 @@ export type ProjectStatus = TaskStatus;
 /** 任务优先级（与自评「新建任务」抽屉一致：紧急 / 高 / 中 / 低） */
 export type TaskPriority = 'urgent' | 'high' | 'medium' | 'low';
 
-export const STATUS_CODES = TASK_STATUSES;
+export const STATUS_CODES = MAIN_TASK_STATUSES;
 export const PRIORITY_CODES = ['urgent', 'high', 'medium', 'low'] as const;
 export const TASK_CODES = ['vehicle', 'technical', 'testing', 'certificate', 'report'] as const;
 export const people = ['张三', '李四', '王五'];
@@ -53,6 +53,7 @@ export interface TaskHistoryEvent {
 }
 
 export interface Project {
+  descendantsPaused?: boolean;
   /** All section approvals finished; the main task awaits its own approval. */
   sectionApprovalReady?: boolean;
   executionDraft?: TaskExecutionDraft;
@@ -147,6 +148,7 @@ export function withdrawProject(id: string): boolean {
   if (!record || projectStatus(record) !== 'reviewing') return false;
   const time = nowText();
   record.status = 'withdrawn';
+  record.descendantsPaused = true;
   record.updater = MOCK_CURRENT_USER.name;
   record.updatedAt = time;
   record.history ??= [];
@@ -339,7 +341,6 @@ for (const task of seeds) {
     event(`${section.id}-create`, 'create', '2026-11-06 09:00:00', task.owner, [code]);
     if (section.status === 'pending') continue;
     event(`${section.id}-draft`, 'draft', '2026-11-07 09:00:00', executor, [code]);
-    if (section.status === 'submitting') continue;
     event(`${section.id}-execute`, 'execute', '2026-11-08 09:00:00', executor, [code]);
     if (['reviewing', 'completed', 'rejected', 'withdrawn'].includes(section.status)) event(`${section.id}-review`, 'review', '2026-11-09 09:00:00', executor, [code], reviewer);
     if (section.status === 'completed') event(`${section.id}-approve`, 'approve', '2026-11-10 09:00:00', reviewer, [code]);

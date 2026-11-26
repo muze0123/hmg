@@ -1,3 +1,4 @@
+import { sectionRegulations } from './regulations';
 import { people, projects, TASK_CODES } from '../../projects/data/projects';
 import { items, type Item } from './items';
 
@@ -42,7 +43,6 @@ export interface SectionDetail {
   taskRows: SectionTaskRow[];
 }
 
-const REGULATIONS = ['GB-2024-001', 'GB-2024-002', 'EU-2024-001', 'EU-2024-002', 'EU-2024-003'];
 
 /**
  * 任务类型只读参数：参考稿把 5 类任务节点逐行列出，每类都要呈现
@@ -64,9 +64,9 @@ function buildTasks(item: Item): SectionTask[] {
   });
 }
 
-/** 「任务信息」列表：以本分项法规编号为首行，其余为该项目的法规任务行（mock） */
+/** Legacy detail adapter: regulation rows follow saved section execution configuration. */
 function buildTaskRows(item: Item): SectionTaskRow[] {
-  const laws = [item.law, ...REGULATIONS.filter((code) => code !== item.law).slice(0, 2)];
+  const laws = sectionRegulations(item);
   return laws.map((law, index) => ({
     law,
     technicalTemplate: `TPL-T${String(index + 1).padStart(4, '0')}`,

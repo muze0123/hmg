@@ -1,9 +1,10 @@
+import { taskPaused, requireTaskAvailable } from '../../projects/data/suspension';
 import { projects, MOCK_CURRENT_USER, type Project, type SubTask, type TaskHistoryEvent } from '../../projects/data/projects';
 import { templateRecords, type TemplateRecord } from '../../templates/data/templates';
 import { items } from '../../sections/data/items';
 import { saveVehicle, vehicleRecords, type Vehicle } from './vehicle';
 
-import { ensureCollaboration } from './collaboration';
+import { ensureCollaboration, reopenCollaboration } from './collaboration';
 
 const clone = <T>(value: T): T => JSON.parse(JSON.stringify(value));
 export function vehicleTemplateValid(template: TemplateRecord | undefined): template is TemplateRecord {
@@ -34,7 +35,8 @@ export function createVehicleTask(project: Project, child: SubTask, template: Te
 
 function syncVehicleSection(next: Vehicle) {
   for (const section of items.filter(section => section.project === next.projectId && section.type === 'vehicle')) {
-    section.status = next.status;
+    // Filling drafts do not put the owning section into a draft state.
+    section.status = next.status === 'submitting' ? 'active' : next.status;
     section.executedAt = next.executedAt || '';
     section.reviewedAt = next.reviewedAt || '';
     section.actual = next.actual;
@@ -91,6 +93,8 @@ export function syncConfiguredVehicles() {
 }
 
 export function commitVehicleTask(next: Vehicle, action: TaskHistoryEvent['action'], opinion = '') {
+  if(action==='reject' || action==='withdraw')reopenCollaboration(next,action==='reject'?opinion:'',action==='reject');
+  requireTaskAvailable(next.projectId || '', next.status);
   const parent = projects.value.find(project => project.id === next.projectId);
   if (parent) {
     const updated = clone(parent);

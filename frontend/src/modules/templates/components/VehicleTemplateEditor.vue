@@ -1,27 +1,89 @@
 <script setup lang="ts">
 import { computed, ref, toRaw } from 'vue';
 import { useI18n } from 'vue-i18n';
-import { IconPlus, IconDelete, IconArrowUp, IconArrowDown, IconDragDotVertical } from '@arco-design/web-vue/es/icon';
+import { IconPlus, IconDelete, IconArrowUp, IconArrowDown, IconDown, IconDragDotVertical } from '@arco-design/web-vue/es/icon';
 import { Message } from '@arco-design/web-vue';
 import AppFieldLabel from '../../../design/components/AppFieldLabel.vue';
-import { TEMPLATE_REGULATIONS, TEMPLATE_REGION_CODES, type TemplateRecord, type Entry } from '../data/templates';
+import { TEMPLATE_REGULATIONS, TEMPLATE_REGION_CODES, TEMPLATE_REFERENCE_KEYS, REF_TO_FIELD_KEY, FIELD_TO_REF_KEY, REF_KEY_TO_TYPE, type TemplateRecord, type Entry } from '../data/templates';
 import { tagRecords } from '../../tags/data/tags';
 import { regionCountries } from '../data/countries';
 const props = defineProps<{ record: TemplateRecord; history: TemplateRecord[] }>();
 const { t, locale } = useI18n();
 const attempted = ref(false);
 const form = ref<{ validate: () => Promise<unknown> }>();
-function entryValid(e: Entry) { return !!(e.name.trim() && e.format && (e.format !== 'table' || (e.columns?.length && e.columns.every(c => c.trim()))) && ((props.record.type === 'vehicle' && !!e.tag && !!e.number?.trim()) || (props.record.type !== 'vehicle' && e.number?.trim() && (props.record.type !== 'technical' || (e.tag && e.partsCertificate)) && (props.record.type === 'technical' || e.technical) && (!['report','certificate'].includes(props.record.type) || e.testing) && (props.record.type !== 'certificate' || e.report)))); }
-const basicKeys = computed(() => ['name', ...(props.record.type === 'technical' ? ['regulationType'] : []), ...(props.record.type !== 'vehicle' ? ['regulation'] : []), 'region','country','vehicleType','version','baseVersion','description','versionNote'] as (keyof Pick<TemplateRecord,'name'|'regulationType'|'regulation'|'region'|'country'|'vehicleType'|'version'|'baseVersion'|'description'|'versionNote'>)[]);
-const extraKeys = computed(() => props.record.type === 'technical' ? ['tag','partsCertificate'] as const : props.record.type === 'vehicle' ? ['tag'] as const : ['technical', ...(['report','certificate'].includes(props.record.type) ? ['testing'] : []), ...(props.record.type === 'certificate' ? ['report'] : []), 'note'] as ('technical'|'testing'|'report'|'note')[]);
+type BasicKey = keyof Pick<TemplateRecord,'name'|'regulationType'|'regulation'|'region'|'country'|'vehicleType'|'version'|'baseVersion'|'refVehicle'|'refTechnical'|'refTesting'|'refReport'|'description'|'versionNote'>;
+type ConfigExtraKey = 'tag'|'partsCertificate'|'vehicle'|'technical'|'testing'|'report'|'note';
+/* 配置项字段（vehicle/technical/testing/report）现在引用上游模版的配置项，支持清空，不再强制必填；
+   必填的是基本信息中的模版级引用字段，由 a-form rules 与下方 validate 双重校验。 */
+function entryValid(e: Entry) {
+  return !!(e.name.trim() && e.format && (e.format !== 'table' || (e.columns?.length && e.columns.every(c => c.trim()))) && (
+    (props.record.type === 'vehicle' && !!e.tag && !!e.number?.trim()) ||
+    (props.record.type === 'technical' && !!e.number?.trim() && !!e.tag && !!e.partsCertificate) ||
+    (!['vehicle','technical'].includes(props.record.type) && !!e.number?.trim())
+  ));
+}
+const basicKeys = computed<BasicKey[]>(() => ['name',
+  ...(props.record.type === 'technical' ? ['regulationType'] as BasicKey[] : []),
+  ...(props.record.type !== 'vehicle' ? ['regulation'] as BasicKey[] : []),
+  'region','country','vehicleType','version','baseVersion',
+  ...(TEMPLATE_REFERENCE_KEYS[props.record.type] || []) as BasicKey[],
+  'description','versionNote',
+]);
+const extraKeys = computed<ConfigExtraKey[]>(() => {
+  switch (props.record.type) {
+    case 'vehicle': return ['tag'];
+    case 'technical': return ['tag','partsCertificate','vehicle'];
+    case 'testing': return ['technical','note'];
+    case 'report': return ['technical','testing','note'];
+    case 'certificate': return ['technical','report','note'];
+    default: return ['note'];
+  }
+});
+/** 引用下拉选项：对应类型的已完成模版。 */
 function references(type: string) { return props.history.filter(r => r.type === type && r.status === 'completed'); }
-async function validate() { attempted.value = true; const errors = await form.value?.validate(); return !errors && props.record.entries.length > 0 && props.record.entries.every(entryValid); }
+function refOptions(key: string) { return references(REF_KEY_TO_TYPE[key] || ''); }
+function refLabel(item: TemplateRecord) { return `${item.name}  ${item.version}`; }
+/** 配置项字段下拉选项：来自被引用的上游模版的配置项。 */
+function configFieldOptions(fieldKey: string): Entry[] {
+  const refKey = FIELD_TO_REF_KEY[fieldKey];
+  if (!refKey) return [];
+  const refId = props.record[refKey as keyof TemplateRecord] as string | undefined;
+  if (!refId) return [];
+  const upstream = props.history.find(r => r.id === refId);
+  return upstream ? upstream.entries : [];
+}
+function fieldDisabled(fieldKey: string): boolean {
+  const refKey = FIELD_TO_REF_KEY[fieldKey];
+  return !!refKey && !props.record[refKey as keyof TemplateRecord];
+}
+function needRefText(fieldKey: string): string {
+  return t('templateEditor.needRef', { field: t(`templateEditor.${FIELD_TO_REF_KEY[fieldKey] || ''}`) });
+}
+async function validate() {
+  attempted.value = true;
+  const errors = await form.value?.validate();
+  const refs = TEMPLATE_REFERENCE_KEYS[props.record.type] || [];
+  const missingRef = refs.some(ref => !props.record[ref as keyof TemplateRecord]);
+  return !errors && !missingRef && props.record.entries.length > 0 && props.record.entries.every(entryValid);
+}
 defineExpose({ validate });
 const countries = computed(() => regionCountries[props.record.region] || []);
 const names = computed(() => new Intl.DisplayNames([locale.value], { type: 'region' }));
 const historical = computed(() => props.history.filter(r => r.type === props.record.type && r.status === 'completed' && r.id !== props.record.id));
+/** 基础版本选中态文案（2026-11-23 用户裁决）：组件内同时显示模版名称与版本号。 */
+function baseVersionLabel(item: TemplateRecord) { return `${item.name}  ${item.version}`; }
 function inherit(id: string) { const base = historical.value.find(r => r.id === id); if (base) props.record.entries = structuredClone(toRaw(base.entries)); }
-function add(index = props.record.entries.length) { props.record.entries.splice(index, 0, { id: crypto.randomUUID(), name: '', format: 'text', note: '' }); }
+/* 新增配置项支持批量（2026-11-23 用户裁决）：一次插入 1 / 10 / 20 / 50 行，
+   新行结构与原单条新增一致，避免逐条点击。 */
+const ADD_BATCH_SIZES = [1, 10, 20, 50] as const;
+function add(count = 1) {
+  const batch = Array.from({ length: count }, () => ({ id: crypto.randomUUID(), name: '', format: 'text', note: '' }));
+  props.record.entries.splice(props.record.entries.length, 0, ...batch);
+}
+function onAddSelect(value: unknown) {
+  const count = Number(value);
+  if (ADD_BATCH_SIZES.some(size => size === count)) add(count);
+}
 function move(index: number, target: number) { if (target < 0 || target >= props.record.entries.length) return; const [entry] = props.record.entries.splice(index, 1); if (entry) props.record.entries.splice(target, 0, entry); }
 const source = ref(-1); const destination = ref(-1); const after = ref(false);
 function resetDrag() { source.value = destination.value = -1; }
@@ -59,26 +121,28 @@ const columnEntry = ref<Entry>(); const batch = ref('');
 function configure(entry: Entry) { columnEntry.value = entry; batch.value = (entry.columns || []).join('\n'); }
 function applyColumns() { const values = batch.value.split('\n').map(v => v.trim()).filter(Boolean); if (!values.length || new Set(values).size !== values.length) { Message.error(t('templateEditor.columnError')); return; } if (columnEntry.value) columnEntry.value.columns = values; columnEntry.value = undefined; }
 function shiftColumn(entry: Entry, index: number, offset: number) { const list = entry.columns || []; const target = index + offset; if (target < 0 || target >= list.length) return; const [value] = list.splice(index,1); list.splice(target,0,value!); }
-function placeholder(key: string, select = false) { const label = ['versionNote','baseVersion','version','regulationType'].includes(key) ? t(`templateEditor.${key}`) : t(`templates.${key}`); return t(select ? 'templateEditor.selectHint' : 'templateEditor.inputHint', { field: label }); }
+const BASIC_EDITOR_KEYS = ['versionNote','baseVersion','version','regulationType','refVehicle','refTechnical','refTesting','refReport'];
+function basicLabel(key: string) { return BASIC_EDITOR_KEYS.includes(key) ? t(`templateEditor.${key}`) : t(`templates.${key}`); }
+function placeholder(key: string, select = false) { return t(select ? 'templateEditor.selectHint' : 'templateEditor.inputHint', { field: basicLabel(key) }); }
 </script>
 <template>
   <div class="vehicle-template-editor">
     <div class="editor-block"><h2>{{ t('templateEditor.basic') }}</h2>
     <a-form ref="form" :model="record" layout="vertical" class="basic-fields">
       <template v-for="key in basicKeys" :key="key">
-      <div v-if="key === 'description' && ['testing','report','certificate'].includes(record.type)" class="form-row-break" aria-hidden="true" />
       <a-form-item :field="key" :rules="['description','versionNote','baseVersion'].includes(key) ? [] : [{ required: true, message: t('templateEditor.required') }]" :required="!['description','versionNote','baseVersion'].includes(key)" :data-template-name="key === 'name' ? '' : undefined">
-        <template #label><AppFieldLabel :text="['versionNote','baseVersion','version','regulationType'].includes(key) ? t(`templateEditor.${key}`) : t(`templates.${key}`)" :colon="true" /></template>
+        <template #label><AppFieldLabel :text="basicLabel(key)" :colon="true" /></template>
         <a-select v-if="key === 'regulationType'" v-model="record.regulationType" :placeholder="placeholder(key,true)" allow-clear :aria-label="t('templateEditor.regulationType')"><a-option v-for="code in ['basic','single']" :key="code" :value="code">{{ t(code === 'basic' ? 'templateEditor.basicRegulation' : 'templateEditor.single') }}</a-option></a-select>
         <a-select v-else-if="key === 'regulation'" v-model="record.regulation" :placeholder="placeholder(key,true)" allow-clear allow-search :aria-label="t('templates.regulation')"><a-option v-for="code in TEMPLATE_REGULATIONS" :key="code" :value="code">{{ code }}</a-option></a-select>
         <a-textarea v-else-if="key === 'description' || key === 'versionNote'" v-model="record[key]" :placeholder="placeholder(key)" :max-length="200" show-word-limit allow-clear :aria-label="t(key === 'description' ? 'templates.description' : 'templateEditor.versionNote')" />
         <a-select v-else-if="key === 'region'" v-model="record.region" :placeholder="placeholder('region', true)" allow-clear :aria-label="t('templates.region')" @change="record.country = ''"><a-option v-for="region in TEMPLATE_REGION_CODES" :key="region" :value="region">{{ t(`templates.regions.${region}`) }}</a-option></a-select>
         <a-select v-else-if="key === 'country'" v-model="record.country" :placeholder="placeholder('country', true)" :disabled="!record.region" allow-search allow-clear :aria-label="t('templates.country')"><a-option v-for="country in countries" :key="country" :value="country">{{ names.of(country) }}</a-option></a-select>
-        <a-select v-else-if="key === 'baseVersion'" v-model="record.baseVersion" :placeholder="placeholder('baseVersion', true)" allow-clear :aria-label="t('templateEditor.baseVersion')" @change="value => inherit(String(value))"><a-option v-for="item in historical" :key="item.id" :value="item.id">{{ item.name }}</a-option></a-select>
-        <a-input v-else v-model="record[key]" :placeholder="placeholder(key)" :max-length="20" show-word-limit allow-clear :aria-label="t(key === 'version' ? 'templateEditor.version' : `templates.${key}`)" />
+        <a-select v-else-if="key === 'baseVersion'" v-model="record.baseVersion" class="base-version-select" :placeholder="placeholder('baseVersion', true)" allow-clear :aria-label="t('templateEditor.baseVersion')" @change="value => inherit(String(value))"><a-option v-for="item in historical" :key="item.id" :value="item.id" :label="baseVersionLabel(item)"><span class="base-version-option"><span class="base-version-name">{{ item.name }}</span><span class="base-version-value">{{ item.version }}</span></span></a-option></a-select>
+        <a-select v-else-if="key in REF_KEY_TO_TYPE" v-model="record[key]" class="base-version-select" :data-ref="key" :placeholder="placeholder(key, true)" allow-search allow-clear :aria-label="basicLabel(key)"><a-option v-for="item in refOptions(key)" :key="item.id" :value="item.id" :label="refLabel(item)"><span class="base-version-option"><span class="base-version-name">{{ item.name }}</span><span class="base-version-value">{{ item.version }}</span></span></a-option></a-select>
+        <a-input v-else v-model="record[key]" :placeholder="placeholder(key)" :max-length="20" show-word-limit allow-clear :aria-label="basicLabel(key)" />
       </a-form-item></template>
     </a-form></div><div class="editor-block">
-    <div class="configuration-heading"><h2>{{ t('templates.entries') }}</h2><a-button class="add-outline" @click="add()"><template #icon><IconPlus /></template>{{ t('templates.add') }}</a-button></div>
+    <div class="configuration-heading"><h2>{{ t('templates.entries') }}</h2><a-dropdown trigger="click" position="bl" popup-container="body" content-class="entry-add-dropdown" @select="onAddSelect"><a-button class="add-outline"><template #icon><IconPlus /></template>{{ t('templates.add') }}<IconDown class="add-caret" /></a-button><template #content><a-doption v-for="count in ADD_BATCH_SIZES" :key="count" :value="count">{{ count === 1 ? t('templateEditor.addOne') : t('templateEditor.addBatch', { count }) }}</a-doption></template></a-dropdown></div>
     <a-alert v-if="attempted && (!record.entries.length || record.entries.some(e => !entryValid(e)))" type="error">{{ t('templateEditor.fieldError') }}</a-alert><div class="fields-scroll"><table class="field-table" :class="{ 'extended-table': record.type !== 'vehicle' }"><thead><tr><th></th><th>{{ t('templateEditor.number') }}</th><th>{{ t('templateEditor.configItem') }}</th><th>{{ t('templateEditor.configFormat') }}</th><th v-for="key in extraKeys" :key="key">{{ t(`templateEditor.${key}`) }}</th><th>{{ t('templates.actions') }}</th></tr></thead><tbody>
       <tr v-for="(entry,index) in record.entries" :key="entry.id" :class="{ dragging: source === index, destination: destination === index, before: destination === index && !after, after: destination === index && after }" @dragover="over($event,index)" @dragleave="destination = -1" @drop.prevent="drop">
         <td><button class="drag-handle" draggable="true" :aria-label="t('templateEditor.reorder')" @dragstart="start($event,index)" @dragend="resetDrag" @keydown.alt.up.prevent="move(index,index-1)" @keydown.alt.down.prevent="move(index,index+1)"><IconDragDotVertical /></button></td>
@@ -96,11 +160,13 @@ function placeholder(key: string, select = false) { const label = ['versionNote'
         </div></td>
         <td v-for="key in extraKeys" :key="key">
           <a-input v-if="key === 'note'" v-model="entry.note" :max-length="100" allow-clear :placeholder="t('templateEditor.inputHint',{field:t('templateEditor.note')})" :aria-label="t('templateEditor.note')" />
-          <a-select v-else v-model="entry[key]" allow-clear allow-search :placeholder="t('templateEditor.selectHint',{field:t(`templateEditor.${key}`)})" :aria-label="t(`templateEditor.${key}`)">
-            <template v-if="key === 'tag'"><a-option v-for="tag in tagRecords" :key="tag.id" :value="tag.id">{{ tag.name }}</a-option></template>
-            <template v-else-if="key === 'partsCertificate'"><a-option v-for="code in ['yes','no']" :key="code" :value="code">{{ t(`templateEditor.${code}`) }}</a-option></template>
-            <template v-else><a-option v-for="item in references(key)" :key="item.id" :value="item.id">{{ item.name }}</a-option></template>
-          </a-select>
+          <a-select v-else-if="key === 'tag'" v-model="entry.tag" allow-clear allow-search :placeholder="t('templateEditor.selectHint',{field:t('templateEditor.tag')})" :aria-label="t('templateEditor.tag')"><a-option v-for="tag in tagRecords" :key="tag.id" :value="tag.id">{{ tag.name }}</a-option></a-select>
+          <a-select v-else-if="key === 'partsCertificate'" v-model="entry.partsCertificate" allow-clear :placeholder="t('templateEditor.selectHint',{field:t('templateEditor.partsCertificate')})" :aria-label="t('templateEditor.partsCertificate')"><a-option v-for="code in ['yes','no']" :key="code" :value="code">{{ t(`templateEditor.${code}`) }}</a-option></a-select>
+          <a-tooltip v-else :content="needRefText(key)" :disabled="!fieldDisabled(key)" position="top">
+            <span class="ref-field-guard" :data-field="key">
+              <a-select v-model="entry[key]" :disabled="fieldDisabled(key)" allow-clear allow-search :placeholder="fieldDisabled(key) ? needRefText(key) : t('templateEditor.selectHint',{field:t(`templateEditor.${key}`)})" :aria-label="t(`templateEditor.${key}`)"><a-option v-for="item in configFieldOptions(key)" :key="item.id" :value="item.id">{{ item.name }}</a-option></a-select>
+            </span>
+          </a-tooltip>
         </td><td class="actions-cell"><div class="row-actions"><a-button :aria-label="t('templates.remove')" type="text" status="danger" @click="record.entries.splice(index,1)"><IconDelete /></a-button><a-button :aria-label="t('templates.add')" type="text" @click="add(index+1)"><IconPlus /></a-button><a-button :aria-label="t('templateEditor.up')" type="text" :disabled="index === 0" @click="move(index,index-1)"><IconArrowUp /></a-button><a-button :aria-label="t('templateEditor.down')" type="text" :disabled="index === record.entries.length-1" @click="move(index,index+1)"><IconArrowDown /></a-button></div></td>
       </tr>
     </tbody></table></div><a-empty v-if="!record.entries.length" :description="t('templateEditor.empty')" />
@@ -114,6 +180,8 @@ function placeholder(key: string, select = false) { const label = ['versionNote'
 .vehicle-template-editor { min-width: 0; display:grid; grid-template-columns:minmax(0,1fr); gap:12px; }
 .editor-block { padding:16px; background:var(--app-surface); border-radius:var(--mt-ds-control-radius); min-width:0; }
 .add-outline { background:transparent; color:var(--app-color-primary); border:1px solid var(--app-color-primary); }
+.add-caret { margin-left:6px; font-size:12px; }
+:global(.entry-add-dropdown .arco-doption) { min-width:140px; }
 .field-table .format-select { width:240px; max-width:100%; }
 .inline-columns { margin-top:12px; }
 td { vertical-align:top; }
@@ -122,7 +190,16 @@ td { vertical-align:top; }
 h2 { font-size: var(--mt-ds-font-body); margin: 0 0 16px; }
 .basic-fields.arco-form { display:flex; flex-direction:row; flex-wrap:wrap; gap: 16px; align-items:flex-start; }
 .basic-fields :deep(.arco-form-item) { flex: 0 1 400px; max-width:100%; margin-bottom:0; }
-.form-row-break { flex-basis:100%; height:0; margin-top:-16px; }
+/* 基础版本下拉项：模版名称在左、版本号在右（2026-11-23 用户裁决）。
+   Arco 的 option-content 默认按内容收缩，须撑满才能令 flex 的 space-between 真正右对齐；
+   下拉面板被 Teleport 到 body，故以 :global + :has 精准命中含目标结构的选项，不波及其它下拉。 */
+:global(.arco-select-option:has(.base-version-option) .arco-select-option-content) { display:block; width:100%; }
+.base-version-option { display:flex; align-items:center; justify-content:space-between; gap:16px; width:100%; min-width:0; }
+.base-version-name { min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.base-version-value { flex:0 0 auto; color:var(--color-text-3); font-variant-numeric:tabular-nums; }
+/* 配置信息引用字段：禁用时仍需承载 tooltip 提示，包裹层撑满单元格宽度 */
+.ref-field-guard { display:block; width:100%; min-width:0; }
+.ref-field-guard :deep(.arco-select) { width:100%; }
 .configuration-heading { display:flex; justify-content:space-between; align-items:center; margin-top:0; margin-bottom:16px; }
 .configuration-heading h2 { margin:0; }
 .fields-scroll { overflow-x:auto; }

@@ -30,10 +30,10 @@
 
 ## 平台下发与审批回调
 
-平台下发建议使用 POST /api/v1/platform/task-dispatches，消息包含 eventId、sourceTaskId、sourceRevision、tenantId、name、workflowDefinitionVersion、ownerId。任务下发首先创建待执行主任务，车型/分项由执行阶段确定。当前交互 API create 为便于内核联调要求车型，未来下发适配单独建模，不能直接套用此请求。
+平台下发使用 POST /api/v1/platform/task-dispatches，消息包含 eventId、sourceTaskId、sourceRevision、tenantId、name、workflowDefinitionVersion、ownerId。任务下发首先创建待执行主任务，车型/分项由执行阶段确定；当前交互 API create 为便于内核联调要求车型，不能套用下发请求。HMG 已提供接收端，按 `(tenant, eventId)` 去重，租户从认证身份推导，重复事件返回 DUPLICATE，同一 sourceTaskId 不重复建单。
 
-审批回调必须包含 eventId、instanceId、approvalId、businessId、tenantId、actorId、decision、workflowRevision、occurredAt。只有匹配当前工作流及审批版本时才能推进业务状态，乱序或失效回调不覆盖当前状态。HMG 当前尚未提供上述接收端点。
+审批回调使用 POST /api/v1/platform/approvals/callbacks，必须包含 eventId、instanceId、approvalId、businessId、tenantId、actorId、decision、workflowRevision、occurredAt。只有匹配当前工作流及审批版本时才能推进业务状态，乱序或失效回调返回 IGNORED 且不覆盖当前状态。HMG 已提供接收端，但仍未与平台实际消息通道联调。
 
 ## 正式产物与自动归档
 
-hmg.task.completed.v1 事件包含固定审批结果及数据快照。产物服务按 aggregateId+version+产物类型去重生成。归档处理应持久化 PENDING/GENERATING/ARCHIVING/COMPLETED/FAILED，所有必需产物生成后归档。通知失败不回滚已完成审批；交由 outbox 重试。当前事件为本地数据库记录，消费者与对外发布尚未实现。
+hmg.task.completed.v1 事件包含固定审批结果及数据快照。产物服务按 aggregateId+version+产物类型去重生成。归档处理持久化 PENDING/GENERATING/ARCHIVING/COMPLETED/FAILED，所有必需产物生成后归档；通知失败不回滚已完成审批，交由 outbox 重试。HMG dev 已实现本地处理器与 stand-in 引用，最多 5 次线性退避；对外发布、真实文件服务和平台归档仍未实现。

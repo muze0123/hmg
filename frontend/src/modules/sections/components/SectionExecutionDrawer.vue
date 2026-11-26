@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import TaskPauseNotice from '../../projects/components/TaskPauseNotice.vue';
+import { taskPaused, displayedTaskStatus } from '../../projects/data/suspension';
 import { computed, nextTick, ref } from 'vue';
 import { onBeforeRouteLeave } from 'vue-router';
 import { useI18n } from 'vue-i18n';
@@ -107,7 +109,7 @@ async function save(submit: boolean) {
 
 <template>
   <a-drawer :visible="visible" :title="t('sectionExecution.title')" width="min(1200px, 100vw)" :mask-closable="true" :esc-to-close="!leaveVisible && !busy" :closable="!busy" unmount-on-close @cancel="requestClose">
-    <div ref="bodyRef" class="section-execution">
+    <div ref="bodyRef" class="section-execution"><TaskPauseNotice :project="item.project" :status="item.status" />
       <section class="execution-panel">
         <h2>{{ t('sectionExecution.content') }}</h2>
         <a-descriptions :column="{ xs: 1, sm: 2, md: 2, lg: 4 }" layout="horizontal">
@@ -119,7 +121,7 @@ async function save(submit: boolean) {
       </section>
       <section class="execution-panel">
         <h2>{{ t('sectionExecution.info') }}</h2>
-        <a-form ref="formRef" :model="form" :disabled="busy" class="entry-form">
+        <a-form ref="formRef" :model="form" :disabled="busy || taskPaused(item.project, item.status)" class="entry-form">
           <div class="entry-scroll"><table class="entry-table" @dragleave="leaveTable"><thead><tr>
             <th scope="col">{{ t('sections.law') }}</th><th scope="col">{{ templateLabel }}</th>
             <th v-if="item.type === 'technical'" scope="col">{{ t('sectionExecution.externalReview') }}</th><th scope="col">{{ t('sections.action') }}</th>
@@ -128,7 +130,7 @@ async function save(submit: boolean) {
               <td><div class="law-cell"><button type="button" class="drag-handle" :disabled="busy || rows.length < 2" :draggable="!busy && rows.length > 1" :aria-label="t('sectionExecution.drag', { row: index + 1 })" :title="t('sectionExecution.drag', { row: index + 1 })" @dragstart="startDrag($event, row.id)" @dragend="clearDrag" @keydown.up.prevent="move(index, index - 1)" @keydown.down.prevent="move(index, index + 1)"><IconDragDotVertical /></button>
                 <a-form-item :field="`rows.${index}.law`" hide-label :rules="rules('law')"><a-select v-model="row.law" allow-search allow-clear :placeholder="t('sectionExecution.select')" :aria-label="`${t('sections.law')} ${index + 1}`"><a-option v-for="law in laws" :key="law" :value="law" :disabled="rows.some(other => other.id !== row.id && other.law === law)">{{ law }}</a-option></a-select></a-form-item>
               </div></td>
-              <td><a-form-item :field="`rows.${index}.template`" hide-label :rules="rules('template')"><a-select v-model="row.template" allow-search allow-clear :placeholder="t('sectionExecution.select')" :aria-label="`${templateLabel} ${index + 1}`"><a-option v-for="template in templates" :key="template.id" :value="template.id">{{ template.name }} · {{ template.version }}</a-option></a-select></a-form-item></td>
+              <td><a-form-item :field="`rows.${index}.template`" hide-label :rules="rules('template')"><a-select class="section-template-select" v-model="row.template" allow-search allow-clear :placeholder="t('sectionExecution.select')" :aria-label="`${templateLabel} ${index + 1}`"><template #label><span class="section-template-option"><span class="section-template-name" :title="templates.find(option => option.id === row.template)?.name">{{ templates.find(option => option.id === row.template)?.name }}</span><span class="section-template-version">{{ templates.find(option => option.id === row.template)?.version }}</span></span></template><a-option v-for="template in templates" :key="template.id" :value="template.id" :label="`${template.name} · ${template.version}`"><span class="section-template-option"><span class="section-template-name" :title="template.name">{{ template.name }}</span><span class="section-template-version">{{ template.version }}</span></span></a-option></a-select></a-form-item></td>
               <td v-if="item.type === 'technical'"><a-form-item :field="`rows.${index}.externalReview`" hide-label :rules="rules('externalReview')"><a-select v-model="row.externalReview" :placeholder="t('sectionExecution.select')" :aria-label="`${t('sectionExecution.externalReview')} ${index + 1}`"><a-option :value="true">{{ t('sections.yes') }}</a-option><a-option :value="false">{{ t('sections.no') }}</a-option></a-select></a-form-item></td>
               <td><div class="entry-actions">
                 <a-button :disabled="busy || rows.length === 1" :aria-label="t('sectionExecution.remove', { row: index + 1 })" :title="t('sectionExecution.remove', { row: index + 1 })" @click="remove(index)"><IconDelete /></a-button>
@@ -142,7 +144,7 @@ async function save(submit: boolean) {
         <span class="sr-only" aria-live="polite">{{ announce }}</span>
       </section>
     </div>
-    <template #footer><div class="execution-footer"><a-button class="app-btn-neutral" :disabled="busy" @click="requestClose">{{ t('sections.cancel') }}</a-button><a-button class="app-btn-neutral" :loading="busy" @click="save(false)">{{ t('taskExecution.draft') }}</a-button><a-button type="primary" :loading="busy" @click="save(true)">{{ t('taskExecution.submit') }}</a-button></div></template>
+    <template #footer><div class="execution-footer"><a-button class="app-btn-neutral" :disabled="busy" @click="requestClose">{{ t('sections.cancel') }}</a-button><a-button class="app-btn-neutral" :disabled="taskPaused(item.project, item.status)" :loading="busy" @click="save(false)">{{ t('taskExecution.draft') }}</a-button><a-button type="primary" :disabled="taskPaused(item.project, item.status)" :loading="busy" @click="save(true)">{{ t('taskExecution.submit') }}</a-button></div></template>
   </a-drawer>
   <ConfirmDialog :visible="leaveVisible" unsaved :title="t('projects.taskCreate.unsaved')" @update:visible="leaveVisible = $event" @confirm="discard" />
 </template>
@@ -175,4 +177,9 @@ h2 { margin: 0 0 var(--mt-ds-space-3); font-size: var(--mt-ds-font-title); font-
 .entry-table .is-drop-before td, .entry-table .is-drop-after td { position: relative; }
 .entry-table .is-drop-before td::before { top: 0; }
 .entry-table .is-drop-after td::before { bottom: 0; }
+.section-template-option { display:flex; align-items:center; justify-content:space-between; gap:var(--mt-ds-space-3); width:100%; min-width:0; }
+.section-template-name { flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.section-template-version { flex-shrink:0; color:var(--color-text-3); }
+:global(.arco-select-option:has(.section-template-option) .arco-select-option-content) { display:block; flex:1; min-width:0; width:100%; }
+.section-template-select :deep(.arco-select-view-value) { flex:1; min-width:0; width:100%; }
 </style>

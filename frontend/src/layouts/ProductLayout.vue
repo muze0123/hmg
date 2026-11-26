@@ -155,10 +155,10 @@ function toggleSidebar() {
           </button>
           <template #content>
             <a-doption value="light" :class="{ 'shell-option-selected': themeMode === 'light' }">
-              {{ t('shell.light') }}<IconCheck v-if="themeMode === 'light'" class="shell-option-check" />
+              <IconSun class="shell-option-icon" :size="16" />{{ t('shell.light') }}
             </a-doption>
             <a-doption value="dark" :class="{ 'shell-option-selected': themeMode === 'dark' }">
-              {{ t('shell.dark') }}<IconCheck v-if="themeMode === 'dark'" class="shell-option-check" />
+              <IconMoon class="shell-option-icon" :size="16" />{{ t('shell.dark') }}
             </a-doption>
           </template>
         </a-dropdown>

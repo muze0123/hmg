@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { formatPercentage } from '../../../shared/percentage';
 import { isTaskStatus } from '../../../shared/taskLifecycle';
 import AppPagination from '../../../design/components/AppPagination.vue';
 import { watch, computed, ref, onMounted, onBeforeUnmount } from 'vue';
@@ -26,12 +27,12 @@ const materialOption = computed(() => {
     animation: !matchMedia('(prefers-reduced-motion: reduce)').matches,
     aria: { enabled: true },
     grid: { left: 0, right: 42, top: 8, bottom: 8 },
-    tooltip: { trigger: 'axis', axisPointer: { type: 'shadow' }, backgroundColor: palette.value.surface, borderColor: palette.value.border, textStyle: { color: palette.value.text }, formatter: (params: { dataIndex: number }[]) => { const index = params[0]?.dataIndex ?? 0; return `${names[index]}: ${values[index]}%`; } },
+    tooltip: { trigger: 'axis', axisPointer: { type: 'shadow' }, backgroundColor: palette.value.surface, borderColor: palette.value.border, textStyle: { color: palette.value.text }, formatter: (params: { dataIndex: number }[]) => { const index = params[0]?.dataIndex ?? 0; return `${names[index]}: ${formatPercentage(values[index]!)}`; } },
     xAxis: { type: 'value', min: 0, max: 100, show: false },
     yAxis: { type: 'category', inverse: true, data: names, show: false },
     series: [
       { type: 'bar', barWidth: 8, showBackground: true, backgroundStyle: { color: palette.value.track, borderRadius: 4 }, data: values.map((value,index) => ({ value, itemStyle: { color: index % 2 ? palette.value.success : palette.value.primary, borderRadius: 4 } })) },
-      { type: 'bar', barWidth: 8, barGap: '-100%', silent: true, tooltip: { show: false }, itemStyle: { color: 'transparent' }, data: values.map(() => 100), label: { show: true, position: 'right', distance: 12, color: palette.value.muted, formatter: (params: { dataIndex: number }) => `${values[params.dataIndex]}%` } },
+      { type: 'bar', barWidth: 8, barGap: '-100%', silent: true, tooltip: { show: false }, itemStyle: { color: 'transparent' }, data: values.map(() => 100), label: { show: true, position: 'right', distance: 12, color: palette.value.muted, formatter: (params: { dataIndex: number }) => `${formatPercentage(values[params.dataIndex]!)}` } },
     ],
   };
 });
@@ -51,13 +52,13 @@ watch(filtered, () => { page.value = 1; });
   <main class="workbench" :aria-label="t('wb.title')">
     
     <section class="summary" :aria-label="t('wb.projects')">
-      <div class="summary-total"><div class="total-copy"><span>{{ t('wb.projects') }}</span><strong>{{ projects.reduce((sum, row) => sum + row.value, 0) }}</strong><span>{{ t('wb.completion') }} <b>{{ Math.round((projects.find(row => row.code === 'completed')?.value || 0) / (projects.reduce((sum, row) => sum + row.value, 0) || 1) * 100) }}%</b></span></div><div class="total-distribution"><div class="stack"><span v-for="item in projects" :key="item.code" :style="{flex:item.value,background:palette[item.tone as keyof ChartPalette]}" :title="`${label(item.code)} ${item.value}`"/></div><div class="stack-labels"><span v-for="item in projects" :key="item.code">{{ label(item.code) }} <b>{{ item.value }}</b></span></div></div></div>
+      <div class="summary-total"><div class="total-copy"><span>{{ t('wb.projects') }}</span><strong>{{ projects.reduce((sum, row) => sum + row.value, 0) }}</strong><span>{{ t('wb.completion') }} <b>{{ formatPercentage((projects.find(row => row.code === 'completed')?.value || 0) / (projects.reduce((sum, row) => sum + row.value, 0) || 1) * 100) }}</b></span></div><div class="total-distribution"><div class="stack"><span v-for="item in projects" :key="item.code" :style="{flex:item.value,background:palette[item.tone as keyof ChartPalette]}" :title="`${label(item.code)} ${item.value}`"/></div><div class="stack-labels"><span v-for="item in projects" :key="item.code">{{ label(item.code) }} <b>{{ item.value }}</b></span></div></div></div>
       <div v-for="item in projects" :key="item.code" class="summary-stat" :style="{borderTopColor:palette[item.tone as keyof ChartPalette]}"><span>{{ label(item.code) }}</span><strong>{{ item.value }}</strong></div>
     </section>
     <section class="panel shortcuts"><h2>{{ t('wb.shortcuts') }}</h2><div class="shortcut-links"><router-link v-for="entry in shortcuts" :key="entry.key" :to="entry.path"><component :is="entry.icon"/><span>{{ t(`wb.${entry.key}`) }}</span><IconArrowRight/></router-link></div></section>
     <div class="analytics">
       <section class="panel project-chart"><h2>{{ t('wb.distribution') }}</h2><WorkbenchChart :option="donut(projects,label,t('wb.total'),palette)" :summary="chartSummary(projects)"/></section>
-      <section class="panel material-panel"><h2>{{ t('wb.materials') }}</h2><div class="material-comparison"><div class="material-labels"><div v-for="item in materials" :key="item.code" class="material-label-group"><span class="material-category">{{ label(item.code) }}</span><div class="material-metric-labels"><span>{{ label('ready') }}</span><span>{{ label('pass') }}</span></div></div></div><WorkbenchChart :option="materialOption" :summary="materials.map(r=>`${label(r.code)} ${label('ready')} ${r.ready}%, ${label('pass')} ${r.pass}%`).join('; ')"/></div></section>
+      <section class="panel material-panel"><h2>{{ t('wb.materials') }}</h2><div class="material-comparison"><div class="material-labels"><div v-for="item in materials" :key="item.code" class="material-label-group"><span class="material-category">{{ label(item.code) }}</span><div class="material-metric-labels"><span>{{ label('ready') }}</span><span>{{ label('pass') }}</span></div></div></div><WorkbenchChart :option="materialOption" :summary="materials.map(r=>`${label(r.code)} ${label('ready')} ${formatPercentage(r.ready)}, ${label('pass')} ${formatPercentage(r.pass)}`).join('; ')"/></div></section>
       <section class="panel"><h2>{{ t('wb.tasks') }}</h2><WorkbenchChart :option="donut(tasks,label,t('wb.total'),palette)" :summary="chartSummary(tasks)"/></section>
       <section v-for="group in groups.slice(0,2)" :key="group.code" class="panel"><h2>{{ label(group.code) }}</h2><WorkbenchChart :option="bars(group.rows,label,palette,t('wb.items'))" :summary="chartSummary(group.rows)"/></section>
       <section class="panel"><h2>{{ t('wb.audits') }}</h2><WorkbenchChart :option="donut(audits,label,t('wb.total'),palette)" :summary="chartSummary(audits)"/></section>

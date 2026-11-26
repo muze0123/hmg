@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import TaskPauseNotice from '../../projects/components/TaskPauseNotice.vue';
+import { taskPaused, displayedTaskStatus } from '../../projects/data/suspension';
 import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue';
 import { useI18n } from 'vue-i18n';
 import { useRoute, useRouter, onBeforeRouteLeave, onBeforeRouteUpdate } from 'vue-router';
@@ -9,8 +11,9 @@ import AppFieldLabel from '../../../design/components/AppFieldLabel.vue';
 import AppStatusTag from '../../../design/components/AppStatusTag.vue';
 import ConfirmDialog from '../../../shared/components/ConfirmDialog.vue';
 import VehicleValues from '../../vehicle/components/VehicleValues.vue';
+import TaskInformationSection from '../../task-execution/components/TaskInformationSection.vue';
 import VehicleTimeline from '../../vehicle/components/VehicleTimeline.vue';
-import { collaborationReady } from '../../vehicle/data/collaboration';
+import { collaborationReady, assignmentIsMine } from '../../vehicle/data/collaboration';
 import { MOCK_CURRENT_USER } from '../../projects/data/projects';
 import { statusRole } from '../../../shared/status';
 import { technicalTasks, technicalVehicleReady, saveTechnicalTask, syncTechnicalSections, withdrawTechnicalTask, type TechnicalTask } from '../data/technical';
@@ -24,11 +27,11 @@ const saving = ref(false);
 const valuesRef = ref<InstanceType<typeof VehicleValues>>();
 const coordinator = computed(() => draft.value?.owner === MOCK_CURRENT_USER.name);
 const ready = computed(() => !!draft.value && technicalVehicleReady(draft.value));
-const participant = computed(() => !!draft.value && (coordinator.value || draft.value.assignments?.some(group => group.owner === MOCK_CURRENT_USER.name))
-  && ['pending','submitting','active','rejected','withdrawn'].includes(draft.value.status) && route.params.mode !== 'review');
+const participant = computed(() => !taskPaused(draft.value?.project || '', draft.value?.status || '') &&  !!draft.value && (coordinator.value || draft.value.assignments?.some(group => assignmentIsMine(group,MOCK_CURRENT_USER.name,MOCK_CURRENT_USER.accountId)))
+  && ['pending','submitting','active','rejected','withdrawn'].includes(draft.value.status) && ['execute','edit'].includes(String(route.params.mode)));
 const editable = computed(() => participant.value && ready.value);
 /** 审批详情的操作权限由路由审批模式 + 审批中状态决定，不按行的 reviewer 字段判定（与列表视角切换契约一致）。 */
-const canReview = computed(() => route.params.mode === 'review' && draft.value?.status === 'reviewing');
+const canReview = computed(() => !taskPaused(draft.value?.project || '', draft.value?.status || '') &&  route.params.mode === 'review' && draft.value?.status === 'reviewing');
 const approvalResult = ref<'completed' | 'rejected'>();
 const opinion = ref('');
 const approvalError = ref(false);
@@ -54,17 +57,17 @@ watch(() => route.fullPath, () => {
   draft.value = current.value ? JSON.parse(JSON.stringify(current.value)) : undefined;
   dirty.value = false; opinion.value = ''; approvalResult.value = undefined; approvalError.value = false;
 }, { immediate:true });
-async function persist(status?: TechnicalTask['status']) {
+async function submitCurrent() { if (!editable.value || saving.value) return; await valuesRef.value?.submitMine(); }
+async function persist(status?: TechnicalTask['status'], submission = false) {
   if (saving.value || !draft.value || (!editable.value && !canReview.value)) return false;
   if (current.value?.status !== draft.value.status) { Message.error(t('techExecution.changed')); return false; }
   if (status === 'reviewing') {
-    if (!coordinator.value || !collaborationReady(draft.value)) { Message.error(t('vehicleCollab.notReady')); return false; }
-    if (!valuesRef.value?.validate()) return false;
+    if (!collaborationReady(draft.value)) { Message.error(t('vehicleCollab.notReady')); return false; }
   }
   saving.value = true;
   try {
     const next: TechnicalTask = JSON.parse(JSON.stringify(draft.value));
-    next.status = status ?? (next.status === 'active' ? 'active' : 'submitting');
+    next.status = status ?? (next.status === 'active' || next.assignments?.some(group=>group.status==='submitted') ? 'active' : 'submitting');
     const time = new Intl.DateTimeFormat('sv-SE',{timeZone:'Asia/Shanghai',dateStyle:'short',timeStyle:'medium'}).format(new Date());
     for(const entry of next.entries) if(entry.format === 'ordered') entry.values = next.rowIds!.map((_,index)=>String(index+1));
     if(status === 'reviewing') { next.executedAt=time; next.reviewedAt=''; }
@@ -72,8 +75,8 @@ async function persist(status?: TechnicalTask['status']) {
       next.reviewedAt=time; next.actual=status === 'completed'?time.slice(0,10):''; next.opinion=opinion.value.trim();
       next.reviews ??= []; next.reviews.push({actor:MOCK_CURRENT_USER.name,result:status,opinion:next.opinion,time});
     }
-    saveTechnicalTask(next,status === 'reviewing'?'review':status === 'completed'?'approve':status === 'rejected'?'reject':'draft',status === 'completed' || status === 'rejected'?opinion.value:'');
-    draft.value=JSON.parse(JSON.stringify(next));dirty.value=false;opinion.value='';Message.success(t('tech.saved'));return true;
+    saveTechnicalTask(next,status === 'reviewing'?'review':status === 'completed'?'approve':status === 'rejected'?'reject':submission?'execute':'draft',submission?t('configurationMatrix.submissionComment'):status === 'completed' || status === 'rejected'?opinion.value:'');
+    draft.value=JSON.parse(JSON.stringify(next));dirty.value=false;opinion.value='';Message.success(t(submission ? status === 'reviewing' ? 'configurationMatrix.sentForReview' : 'configurationMatrix.submitted' : 'tech.saved'));return true;
   } catch { Message.error(t('techExecution.failed'));return false; } finally { saving.value=false; }
 }
 function focusApproval() { nextTick(()=>document.getElementById('technical-approval-input')?.focus()); }
@@ -99,11 +102,11 @@ onBeforeUnmount(()=>window.removeEventListener('beforeunload',beforeUnload));
     <ExecutionTaskList v-if="!route.params.id" module="technical" :rows="technicalTasks" :withdraw-task="withdrawTechnicalTask" />
     <template v-else-if="draft">
       <AppDetailHeader ancestor-to="/tasks/technical" :ancestor-label="t('tech.title')" :current-label="route.params.mode === 'execute' ? t('executionWorkspace.execute') : route.params.mode === 'edit' ? t('executionWorkspace.edit') : route.params.mode === 'review' ? t('executionWorkspace.review') : t('executionWorkspace.detail')">
-        <template #actions><a-space v-if="participant"><a-button class="app-btn-neutral" :disabled="saving" @click="router.push('/tasks/technical')">{{ t('templates.cancel') }}</a-button><a-button type="outline" class="app-btn-neutral technical-draft-button" :loading="saving" :disabled="!ready" @click="persist()">{{ t('vehicle.save') }}</a-button><a-button v-if="coordinator" type="primary" :loading="saving" :disabled="!ready || !collaborationReady(draft)" @click="persist('reviewing')">{{ t('vehicle.submit') }}</a-button></a-space><a-space v-else-if="canReview"><a-button class="app-btn-neutral" :disabled="saving" @click="review('rejected')">{{ t('vehicle.reject') }}</a-button><a-button type="primary" :loading="saving" @click="review('completed')">{{ t('vehicle.pass') }}</a-button></a-space></template>
-      </AppDetailHeader>
-      <div class="detail-block" role="region" :aria-label="t('techExecution.info')"><h2>{{ t('techExecution.info') }}</h2><dl class="technical-facts"><div v-for="key in basics" :key="key"><dt><AppFieldLabel context="detail" colon :text="fieldLabel(key)" /></dt><dd><AppStatusTag v-if="key === 'status'" :role="statusRole(draft.status,'tasks')" :label="fieldValue(key)" /><template v-else>{{ fieldValue(key) }}</template></dd></div></dl></div>
-      <div class="detail-block" role="region" :aria-label="t('techExecution.content')"><h2>{{ t('techExecution.content') }}</h2><a-alert v-if="!ready && participant" type="warning" class="gate-warning">{{ t('tech.gate') }}</a-alert><VehicleValues :key="draft.id" ref="valuesRef" :model-value="draft" :readonly="!editable || saving" :manager="coordinator" :actor="MOCK_CURRENT_USER.name" :table-label="t('techExecution.content')" :positive-entry-id="draft.referenceEntryId" :positive-message="t('tech.required')" @change="dirty=true" @save="done=>persist().then(done)" /></div>
-      <VehicleTimeline class="technical-timeline" :record="current || draft" module-code="technical" :include-unscoped="false" />
+        <template #actions><a-space v-if="participant"><a-button class="app-btn-neutral" :disabled="saving" @click="router.push('/tasks/technical')">{{ t('templates.cancel') }}</a-button><a-button type="outline" class="app-btn-neutral technical-draft-button" :loading="saving" :disabled="!ready || valuesRef?.imageBusy" @click="persist()">{{ t('vehicle.save') }}</a-button><a-button type="primary" :loading="saving" :disabled="!ready || !valuesRef?.hasMineFields || valuesRef?.mineSubmitted || valuesRef?.imageBusy" @click="submitCurrent">{{ t('vehicle.submit') }}</a-button></a-space><a-space v-else-if="canReview"><a-button class="app-btn-neutral" :disabled="saving" @click="review('rejected')">{{ t('vehicle.reject') }}</a-button><a-button type="primary" :loading="saving" @click="review('completed')">{{ t('vehicle.pass') }}</a-button></a-space></template>
+      </AppDetailHeader><TaskPauseNotice v-if="draft" :project="draft.project" :status="draft.status" />
+      <TaskInformationSection><dl class="technical-facts"><div v-for="key in basics" :key="key"><dt><AppFieldLabel context="detail" colon :text="fieldLabel(key)" /></dt><dd><AppStatusTag v-if="key === 'status'" :role="statusRole(draft.status,'tasks')" :label="fieldValue(key)" /><template v-else>{{ fieldValue(key) }}</template></dd></div></dl></TaskInformationSection>
+      <div class="detail-block" role="region" :aria-label="t('executionWorkspace.configuration')"><h2>{{ t('executionWorkspace.configuration') }}</h2><a-alert v-if="!ready && participant" type="warning" class="gate-warning">{{ t('tech.gate') }}</a-alert><VehicleValues :key="draft.id" ref="valuesRef" :model-value="draft" :readonly="!editable || saving" :manager="coordinator" :actor="MOCK_CURRENT_USER.name" :actor-id="MOCK_CURRENT_USER.accountId" :filling-mode="['execute','edit'].includes(String(route.params.mode)) && ['pending','submitting','active','rejected','withdrawn'].includes(draft.status)" show-parts :table-label="t('executionWorkspace.configuration')" :positive-entry-id="draft.referenceEntryId" :positive-message="t('tech.required')" @change="dirty=true" @save="(done,review)=>persist(review ? 'reviewing' : undefined, true).then(done)" /></div>
+      <VehicleTimeline v-if="route.params.mode !== 'execute'" class="technical-timeline" :record="current || draft" module-code="technical" :include-unscoped="false" />
     </template>
     <a-empty v-else :description="t('tech.empty')" />
   </main>

@@ -389,13 +389,17 @@ function downloadErrorData(task: ImportTaskRecord) {
    抽屉内筛选条只保留上下留白，不带底部分割线 */
 .tc-filters { padding: 16px 0; }
 
-/* 静态说明条：info 面、4px 圆角、无阴影（DESIGN.md · Alert） */
-.tc-note { margin-top: 16px; border-radius: 4px; }
+/* 静态说明条：info 面、4px 圆角、无阴影（DESIGN.md · Alert）。
+   与上方筛选条件、下方数据列表均 12px（DESIGN.md · 相邻区块一律 12px），上下对称。 */
+.tc-note { margin-top: 12px; border-radius: 4px; }
+/* 说明条存在时，表格区不再叠加自身的 8px 上间距，保证说明条 ↔ 列表恰为 12px。 */
+.tc-note + .tc-table-wrap { margin-top: 12px; }
 
 /* 表格区：白底、无外框、行分割线，表头/单元格样式统一在 global.css。
    不撑满抽屉（flex: 0 1 auto）：行数少时容器随内容收高，分页器紧随数据列表；
    行数多时容器按可用高度收缩并内部滚动，是唯一的垂直滚动 owner；
-   横向溢出由 Arco 的表格内容区自行承载，不外溢到抽屉壳。 */
+   横向溢出由 Arco 的表格内容区自行承载，不外溢到抽屉壳。
+   上间距：无说明条时（导入数据）与筛选条件 8px；有说明条时由 `.tc-note + .tc-table-wrap` 接管为 12px。 */
 .tc-table-wrap {
   flex: 0 1 auto;
   min-height: 0;

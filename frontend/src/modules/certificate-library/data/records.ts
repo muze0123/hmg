@@ -53,6 +53,18 @@ export function libraryTimeline(record: LibraryRecord): LibraryEvent[] {
 
 // Independent library fixtures; no API or persistence contract has been established.
 // Seed events follow each certificate's status and its related technical task's people and dates.
+// CL-0003（已完成）附带示例 PDF 附件，供详情页「预览文件 / 下载」链路联调；接入后端后由真实附件替换。
+function sampleCertificatePdf(): File | null {
+  if (typeof File === 'undefined') return null;
+  const pdf = '%PDF-1.4\n'
+    + '1 0 obj<</Type/Catalog/Pages 2 0 R>>endobj\n'
+    + '2 0 obj<</Type/Pages/Kids[3 0 R]/Count 1>>endobj\n'
+    + '3 0 obj<</Type/Page/Parent 2 0 R/MediaBox[0 0 595 842]/Resources<</Font<</F1 4 0 R>>>>/Contents 5 0 R>>endobj\n'
+    + '4 0 obj<</Type/Font/Subtype/Type1/BaseFont/Helvetica>>endobj\n'
+    + '5 0 obj<</Length 96>>stream\nBT /F1 24 Tf 72 770 Td (CERT-2026-003 sample certificate) Tj ET\nBT /F1 14 Tf 72 730 Td (HMG certificate library preview demo) Tj ET\nendstream\nendobj\n'
+    + 'xref\n0 6\ntrailer<</Size 6/Root 1 0 R>>\nstartxref\n9\n%%EOF';
+  return new File([pdf], 'CERT-2026-003.pdf', { type: 'application/pdf' });
+}
 export const libraryRecords = ref<LibraryRecord[]>(technicalTasks.slice(0, 16).map((task, index) => {
   const status = LIBRARY_STATUSES[index % LIBRARY_STATUSES.length]!;
   const events: LibraryEvent[] = [
@@ -73,7 +85,7 @@ export const libraryRecords = ref<LibraryRecord[]>(technicalTasks.slice(0, 16).m
     name: `CERT-2026-${String(index + 1).padStart(3, '0')}`,
     project: task.project,
     status,
-    entries: [{ regulation: task.regulation, regulationName: ['车辆排放标准', '整车安全要求', '车辆电磁兼容要求', '车辆制动性能要求'][index % 4], number: `CERT-2026-${String(index + 1).padStart(3, '0')}`, issuer: '中汽研', agency: 'TÜV', issued: '2026-01-10', expires: '2029-01-09', file: null }],
+    entries: [{ regulation: task.regulation, regulationName: ['车辆排放标准', '整车安全要求', '车辆电磁兼容要求', '车辆制动性能要求'][index % 4], number: `CERT-2026-${String(index + 1).padStart(3, '0')}`, issuer: '中汽研', agency: 'TÜV', issued: '2026-01-10', expires: '2029-01-09', file: index === 2 ? sampleCertificatePdf() : null }],
     events,
     history,
   };

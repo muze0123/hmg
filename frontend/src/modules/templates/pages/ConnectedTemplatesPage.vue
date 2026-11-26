@@ -1,17 +1,27 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue';
+import { useRoute } from 'vue-router';
 import { useI18n } from 'vue-i18n';
 import { Message } from '@arco-design/web-vue';
-import { IconPlus } from '@arco-design/web-vue/es/icon';
+import { IconPlus, IconMore } from '@arco-design/web-vue/es/icon';
 import AppFieldLabel from '../../../design/components/AppFieldLabel.vue';
 import AppFormLayout from '../../../design/components/AppFormLayout.vue';
 import AppListToolbar from '../../../design/components/AppListToolbar.vue';
 import AppPagination from '../../../design/components/AppPagination.vue';
 import ApiSession from '../../../shared/components/ApiSession.vue';
 import ConfirmDialog from '../../../shared/components/ConfirmDialog.vue';
-import { currentApiUser, request, kinds, formats, type Schema, type TemplateVersion, type Field } from '../../../shared/api/hmg';
+import { currentApiUser, request, kinds, formats, type Schema, type TemplateVersion, type Field, type TaskView, type TaskNode } from '../../../shared/api/hmg';
 import { usePendingChanges } from '../../../shared/api/usePendingChanges';
 const { t } = useI18n();
+const route=useRoute();
+watch(()=>route.params.section,()=>{page.value=1;});
+const usage=computed(()=>route.params.section==='usage');
+const taskRows=ref<TaskView[]>([]);
+const bindings=computed(()=>taskRows.value.flatMap(task=>{
+ const rows:{id:string;taskId:string;taskName:string;version:string;name:string;kind:string}[]=[];
+ function visit(node:TaskNode){if(node.level==='SUBTASK'&&node.templateSnapshot)rows.push({id:node.id,taskId:task.id,taskName:task.task.name,version:node.templateSnapshot.revision,name:node.templateSnapshot.name,kind:node.templateSnapshot.kind});node.children.forEach(visit);}
+ visit(task.task.root);return rows;
+}).filter(row=>`${row.name} ${row.taskName}`.toLowerCase().includes(applied.value.toLowerCase())));
 const rows = ref<TemplateVersion[]>([]); const loading = ref(false); const failure = ref(false); const busy = ref(false);
 const keyword = ref(''); const applied = ref(''); const page = ref(1); const size = ref(10);
 const draft = ref<Schema>(); const initial = ref(''); const selected = ref<TemplateVersion>();
@@ -19,8 +29,17 @@ const dirty = computed(() => !!draft.value && JSON.stringify(draft.value) !== in
 const leave = usePendingChanges(dirty, busy);
 const publish = ref<TemplateVersion>();
 const filtered = computed(() => rows.value.filter(row => `${row.schema.name} ${row.schema.templateId} ${row.schema.revision}`.toLowerCase().includes(applied.value.toLowerCase())));
-async function load() { loading.value=true; failure.value=false; try { rows.value=await request<TemplateVersion[]>('/template-versions'); } catch { failure.value=true; } finally { loading.value=false; } }
-watch(currentApiUser, user => { if (user) void load(); }, { immediate:true });
+let loadGeneration=0;
+async function load() {
+  const generation=++loadGeneration;loading.value=true;failure.value=false;
+  try {
+    const templates=await request<TemplateVersion[]>('/template-versions');
+    const tasks=await request<TaskView[]>('/tasks');
+    if(generation===loadGeneration){rows.value=templates;taskRows.value=tasks;}
+  } catch {if(generation===loadGeneration)failure.value=true;}
+  finally {if(generation===loadGeneration)loading.value=false;}
+}
+watch(currentApiUser, user => { rows.value=[];taskRows.value=[];selected.value=undefined;draft.value=undefined;if(user)void load(); }, { immediate:true });
 function create(source?: TemplateVersion) {
   draft.value=source ? structuredClone(source.schema) : { templateId:'', revision:'1', name:'', kind:'VEHICLE', regulationId:'', fields:[] };
   if (source) draft.value.revision='';
@@ -45,8 +64,11 @@ async function publishVersion() {
 </script>
 <template>
   <ApiSession><section class="connected-templates">
-    <template v-if="!draft && !selected">
-      <form class="filter-panel" @submit.prevent="applied=keyword.trim();page=1"><div class="filter-field"><AppFieldLabel :text="t('connected.name')" context="filter" for="connected-template-search" /><a-input id="connected-template-search" v-model="keyword" class="app-filter-control" allow-clear /></div><a-button @click="keyword='';applied='';page=1">{{ t('connected.reset') }}</a-button><a-button type="primary" html-type="submit">{{ t('connected.search') }}</a-button></form>
+    <template v-if="usage">
+      <section class="surface"><AppListToolbar :title="t('connected.usage')" /><a-alert v-if="failure" type="error">{{t('connected.loadFailed')}} <a-button @click="load">{{t('connected.retry')}}</a-button></a-alert><a-table :data="bindings.slice((page-1)*size,page*size)" row-key="id" :loading="loading" :bordered="false" :pagination="false" :scroll="{x:700}"><template #columns><a-table-column data-index="name" :title="t('connected.name')" :width="200"/><a-table-column data-index="version" :title="t('connected.revision')" :width="120"/><a-table-column data-index="taskName" :title="t('connected.tasks')" :width="200"/></template><template #empty><a-empty :description="t('connected.empty')"/></template></a-table><AppPagination v-model:current="page" v-model:page-size="size" :total="bindings.length" /></section>
+    </template>
+    <template v-else-if="!draft && !selected">
+      <form class="filter-panel" @submit.prevent="applied=keyword.trim();page=1"><div class="filter-field"><AppFieldLabel :text="t('connected.name')" context="filter" for="connected-template-search-input" /><a-input id="connected-template-search" :input-attrs="{id: 'connected-template-search-input'}" v-model="keyword" class="app-filter-control" allow-clear /></div><a-button @click="keyword='';applied='';page=1">{{ t('connected.reset') }}</a-button><a-button type="primary" html-type="submit">{{ t('connected.search') }}</a-button></form>
       <section class="surface"><AppListToolbar :title="t('connected.templates')"><template #actions><a-button type="primary" @click="create()"><template #icon><IconPlus /></template>{{ t('connected.newVersion') }}</a-button></template></AppListToolbar>
         <a-alert v-if="failure" type="error">{{ t('connected.loadFailed') }} <a-button type="text" @click="load">{{ t('connected.retry') }}</a-button></a-alert>
         <a-table :data="filtered.slice((page-1)*size,page*size)" row-key="id" :pagination="false" :bordered="false" :loading="loading" :scroll="{x:900}"><template #columns>
@@ -55,7 +77,7 @@ async function publishVersion() {
           <a-table-column :title="t('connected.revision')" :width="100"><template #cell="{record}">{{ record.schema.revision }}</template></a-table-column>
           <a-table-column :title="t('connected.kind')" :width="120"><template #cell="{record}">{{ t(`connected.kinds.${record.schema.kind}`) }}</template></a-table-column>
           <a-table-column :title="t('connected.status')" :width="120"><template #cell="{record}">{{ t(record.published?'connected.published':'connected.unpublished') }}</template></a-table-column>
-          <a-table-column :title="t('connected.actions')" :width="260" fixed="right"><template #cell="{record}"><div class="row-actions"><a-button type="text" @click="selected=record">{{ t('connected.detail') }}</a-button><a-button type="text" @click="create(record)">{{ t('connected.newVersion') }}</a-button><a-button v-if="!record.published" type="text" @click="publish=record">{{ t('connected.publish') }}</a-button></div></template></a-table-column>
+          <a-table-column :title="t('connected.actions')" :width="260" fixed="right"><template #cell="{record}"><div class="row-actions"><a-button type="text" @click="selected=record">{{ t('connected.detail') }}</a-button><a-button type="text" @click="create(record)">{{ t('connected.newVersion') }}</a-button><a-dropdown v-if="!record.published" trigger="hover" position="br" popup-container="body" content-class="row-more-dropdown"><a-button size="mini" :aria-label="t('connected.more')"><IconMore /></a-button><template #content><a-doption @click="publish=record">{{ t('connected.publish') }}</a-doption></template></a-dropdown></div></template></a-table-column>
         </template><template #empty><a-empty :description="t('connected.empty')" /></template></a-table>
         <AppPagination v-model:current="page" v-model:page-size="size" :total="filtered.length" />
       </section>
@@ -63,16 +85,16 @@ async function publishVersion() {
     <section v-else class="surface template-editor">
       <div class="toolbar"><a-button :disabled="busy" @click="cancel">{{ t('connected.back') }}</a-button><a-button v-if="draft" type="primary" :loading="busy" @click="save">{{ t('connected.save') }}</a-button></div>
       <AppFormLayout v-if="draft"><a-form :model="draft" layout="vertical">
-        <a-form-item v-for="key in ['templateId','revision','name'] as const" :key="key" required><template #label><AppFieldLabel :text="t(`connected.${key}`)" /></template><a-input v-model="draft[key]" :aria-label="t(`connected.${key}`)" /></a-form-item>
-        <a-form-item required><template #label><AppFieldLabel :text="t('connected.kind')" /></template><a-select v-model="draft.kind" :aria-label="t('connected.kind')"><a-option v-for="kind in kinds" :key="kind">{{ t(`connected.kinds.${kind}`) }}</a-option></a-select></a-form-item>
-        <a-form-item v-if="draft.kind!=='VEHICLE'" required><template #label><AppFieldLabel :text="t('connected.regulationId')" /></template><a-input v-model="draft.regulationId" :aria-label="t('connected.regulationId')" /></a-form-item>
+        <a-form-item v-for="key in ['templateId','revision','name'] as const" :key="key" required><template #label><AppFieldLabel :text="t(`connected.${key}`)" /></template><a-input v-model="draft[key]" :input-attrs="{'aria-label': t(`connected.${key}`)}" /></a-form-item>
+        <a-form-item required><template #label><AppFieldLabel :text="t('connected.kind')" /></template><a-select v-model="draft.kind" :aria-label="t('connected.kind')"><a-option v-for="kind in kinds" :key="kind" :value="kind">{{ t(`connected.kinds.${kind}`) }}</a-option></a-select></a-form-item>
+        <a-form-item v-if="draft.kind!=='VEHICLE'" required><template #label><AppFieldLabel :text="t('connected.regulationId')" /></template><a-input v-model="draft.regulationId" :input-attrs="{'aria-label': t('connected.regulationId')}" /></a-form-item>
         <div v-for="(field,index) in draft.fields" :key="field.id" class="field-editor">
-          <a-form-item required><template #label><AppFieldLabel :text="t('connected.fieldName')" /></template><a-input v-model="field.label" :aria-label="t('connected.fieldName')" /></a-form-item>
-          <a-form-item><template #label><AppFieldLabel :text="t('connected.format')" /></template><a-select v-model="field.format" :aria-label="t('connected.format')" @change="setFormat(field)"><a-option v-for="format in formats" :key="format">{{ t(`connected.formats.${format}`) }}</a-option></a-select></a-form-item>
+          <a-form-item required><template #label><AppFieldLabel :text="t('connected.fieldName')" /></template><a-input v-model="field.label" :input-attrs="{'aria-label': t('connected.fieldName')}" /></a-form-item>
+          <a-form-item><template #label><AppFieldLabel :text="t('connected.format')" /></template><a-select v-model="field.format" :aria-label="t('connected.format')" @change="setFormat(field)"><a-option v-for="format in formats" :key="format" :value="format">{{ t(`connected.formats.${format}`) }}</a-option></a-select></a-form-item>
           <a-checkbox v-model="field.required">{{ t('connected.mandatory') }}</a-checkbox>
-          <template v-if="field.format==='NUMBER'"><a-form-item :label="t('connected.minimum')"><a-input-number v-model="field.minimum" :aria-label="t('connected.minimum')" /></a-form-item><a-form-item :label="t('connected.maximum')"><a-input-number v-model="field.maximum" :aria-label="t('connected.maximum')" /></a-form-item></template>
-          <a-form-item v-if="field.format==='TEXT'||field.format==='RICH'" :label="t('connected.maxLength')"><a-input-number v-model="field.maxLength" :min="1" :max="100000" :aria-label="t('connected.maxLength')" /></a-form-item>
-          <template v-if="field.format==='TABLE'"><div v-for="(column,columnIndex) in field.columns" :key="column.id" class="column-editor"><a-input v-model="column.label" :aria-label="t('connected.columnName')" :placeholder="t('connected.columnName')" /><a-select v-model="column.format" :aria-label="t('connected.format')"><a-option value="TEXT">{{ t('connected.formats.TEXT') }}</a-option><a-option value="NUMBER">{{ t('connected.formats.NUMBER') }}</a-option></a-select><a-checkbox v-model="column.required">{{ t('connected.mandatory') }}</a-checkbox><a-button status="danger" @click="field.columns?.splice(columnIndex,1)">{{ t('connected.remove') }}</a-button></div><a-button @click="addColumn(field)">{{ t('connected.addColumn') }}</a-button></template>
+          <template v-if="field.format==='NUMBER'"><a-form-item :label="t('connected.minimum')"><a-input-number v-model="field.minimum" :input-attrs="{'aria-label': t('connected.minimum')}" /></a-form-item><a-form-item :label="t('connected.maximum')"><a-input-number v-model="field.maximum" :input-attrs="{'aria-label': t('connected.maximum')}" /></a-form-item></template>
+          <a-form-item v-if="field.format==='TEXT'||field.format==='RICH'" :label="t('connected.maxLength')"><a-input-number v-model="field.maxLength" :min="1" :max="100000" :input-attrs="{'aria-label': t('connected.maxLength')}" /></a-form-item>
+          <template v-if="field.format==='TABLE'"><div v-for="(column,columnIndex) in field.columns" :key="column.id" class="column-editor"><a-input v-model="column.label" :input-attrs="{'aria-label': t('connected.columnName')}" :placeholder="t('connected.columnName')" /><a-select v-model="column.format" :aria-label="t('connected.format')"><a-option value="TEXT">{{ t('connected.formats.TEXT') }}</a-option><a-option value="NUMBER">{{ t('connected.formats.NUMBER') }}</a-option></a-select><a-checkbox v-model="column.required">{{ t('connected.mandatory') }}</a-checkbox><a-button status="danger" @click="field.columns?.splice(columnIndex,1)">{{ t('connected.remove') }}</a-button></div><a-button @click="addColumn(field)">{{ t('connected.addColumn') }}</a-button></template>
           <a-button type="text" status="danger" @click="draft.fields.splice(index,1)">{{ t('connected.remove') }}</a-button>
         </div>
         <a-button @click="addField">{{ t('connected.addField') }}</a-button>

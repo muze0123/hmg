@@ -18,8 +18,8 @@ async function login() {
   <slot v-if="currentApiUser" />
   <section v-else class="api-signin">
     <AppFormLayout><a-form :model="{ user, password }" layout="vertical" @submit-success="login">
-      <a-form-item field="user" :rules="[{ required: true, message: t('connected.required') }]"><template #label><AppFieldLabel :text="t('connected.username')" /></template><a-input v-model="user" :aria-label="t('connected.username')" autocomplete="username" /></a-form-item>
-      <a-form-item field="password" :rules="[{ required: true, message: t('connected.required') }]"><template #label><AppFieldLabel :text="t('connected.password')" /></template><a-input-password v-model="password" :aria-label="t('connected.password')" autocomplete="current-password" /></a-form-item>
+      <a-form-item field="user" :rules="[{ required: true, message: t('connected.required') }]"><template #label><AppFieldLabel :text="t('connected.username')" /></template><a-input v-model="user" :input-attrs="{'aria-label': t('connected.username')}" autocomplete="username" /></a-form-item>
+      <a-form-item field="password" :rules="[{ required: true, message: t('connected.required') }]"><template #label><AppFieldLabel :text="t('connected.password')" /></template><a-input-password v-model="password" :input-attrs="{'aria-label': t('connected.password')}" autocomplete="current-password" /></a-form-item>
       <a-alert v-if="error" type="error">{{ t('connected.signInFailed') }}</a-alert>
       <a-button type="primary" html-type="submit" :loading="busy">{{ t('connected.signIn') }}</a-button>
     </a-form></AppFormLayout>

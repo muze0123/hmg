@@ -32,6 +32,7 @@ body {
   --mt-ds-detail-label-width: 112px;
   --mt-ds-detail-row-gap: 10px;
   --mt-ds-confirm-icon: 20px;
+  --mt-ds-confirm-icon-gap: 10px;
   --mt-ds-dialog-header-height: 48px;
 }
 

@@ -70,6 +70,32 @@
             }
           }
         }
+      },
+      "get": {
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/View"
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "409": {
+            "description": "Business conflict"
+          },
+          "503": {
+            "description": "Platform not connected"
+          }
+        }
       }
     },
     "/api/v1/tasks/{id}": {
@@ -199,7 +225,10 @@
               "type": "string",
               "enum": [
                 "save",
+                "submitDraft",
                 "submit",
+                "withdraw",
+                "void",
                 "approve",
                 "reject"
               ]
@@ -231,6 +260,16 @@
           },
           "503": {
             "description": "Platform adapters not connected"
+          },
+          "422": {
+            "description": "Field validation failed. Draft is preserved and task is not submitted.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FieldValidationError"
+                }
+              }
+            }
           }
         },
         "requestBody": {
@@ -241,6 +280,192 @@
                 "$ref": "#/components/schemas/Command"
               }
             }
+          }
+        }
+      }
+    },
+    "/api/v1/tasks/{id}/status": {
+      "get": {
+        "summary": "Front-end compatible status view (read-only)",
+        "description": "Maps kernel states to lower-case front-end codes. It never changes task state.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TaskStatusView"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "404": {
+            "description": "Task not visible in this tenant"
+          }
+        }
+      }
+    },
+    "/api/v1/platform/task-dispatches": {
+      "post": {
+        "summary": "Receive a platform task dispatch event",
+        "description": "Tenant is derived from the authenticated identity; body tenantId must match. Repeated eventId is acknowledged as DUPLICATE.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PlatformDispatch"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Acknowledgement"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Validation error"
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "403": {
+            "description": "Tenant mismatch"
+          },
+          "409": {
+            "description": "Event id reused with different content"
+          }
+        }
+      }
+    },
+    "/api/v1/platform/approvals/callbacks": {
+      "post": {
+        "summary": "Receive a platform approval callback",
+        "description": "Stale or out-of-order callbacks are acknowledged as IGNORED without mutating task state.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ApprovalCallback"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Acknowledgement"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Validation error"
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "403": {
+            "description": "Tenant mismatch"
+          },
+          "404": {
+            "description": "Task not visible in this tenant"
+          },
+          "409": {
+            "description": "Event id reused with different content"
+          }
+        }
+      }
+    },
+    "/api/v1/outbox": {
+      "get": {
+        "summary": "Dev-only outbox inspection",
+        "parameters": [
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "default": 50,
+              "minimum": 1,
+              "maximum": 100
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/OutboxEvent"
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required"
+          }
+        }
+      }
+    },
+    "/api/v1/outbox/process": {
+      "post": {
+        "summary": "Dev-only manual processing of due and failed outbox events",
+        "parameters": [
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "default": 10,
+              "minimum": 1,
+              "maximum": 100
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProcessResult"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required"
           }
         }
       }
@@ -275,6 +500,143 @@
           }
         }
       }
+    },
+    "/api/v1/template-versions": {
+      "get": {
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/TemplateVersion"
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "409": {
+            "description": "Business conflict"
+          },
+          "503": {
+            "description": "Platform not connected"
+          }
+        }
+      },
+      "post": {
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TemplateSchema"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TemplateVersion"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "409": {
+            "description": "Business conflict"
+          },
+          "503": {
+            "description": "Platform not connected"
+          }
+        }
+      }
+    },
+    "/api/v1/template-versions/{id}": {
+      "get": {
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TemplateVersion"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "409": {
+            "description": "Business conflict"
+          },
+          "503": {
+            "description": "Platform not connected"
+          },
+          "404": {
+            "description": "Version not visible in this tenant"
+          }
+        }
+      }
+    },
+    "/api/v1/template-versions/{id}/publish": {
+      "post": {
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TemplateVersion"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "409": {
+            "description": "Business conflict"
+          },
+          "503": {
+            "description": "Platform not connected"
+          },
+          "404": {
+            "description": "Version not visible in this tenant"
+          }
+        }
+      }
     }
   },
   "components": {
@@ -303,7 +665,6 @@
         },
         "required": [
           "name",
-          "vehicleId",
           "workflowVersion",
           "reviewers"
         ]
@@ -358,6 +719,18 @@
             "items": {
               "$ref": "#/components/schemas/Child"
             }
+          },
+          "vehicleId": {
+            "type": "string",
+            "description": "Required for main execution when not previously assigned"
+          },
+          "workflowInstanceId": {
+            "type": "string",
+            "description": "Main node only: platform workflow instance to bind for approval callbacks"
+          },
+          "workflowRevision": {
+            "type": "string",
+            "description": "Main node only: workflow definition revision captured for approval callbacks"
           }
         },
         "required": [
@@ -379,6 +752,10 @@
           },
           "comment": {
             "type": "string"
+          },
+          "workflowDriven": {
+            "type": "boolean",
+            "description": "When true, local approve is rejected on workflow-bound nodes; a platform callback is required"
           }
         },
         "required": [
@@ -460,11 +837,33 @@
           "state": {
             "enum": [
               "PENDING",
+              "SUBMITTING",
               "ACTIVE",
               "REVIEWING",
               "REJECTED",
-              "COMPLETED"
+              "COMPLETED",
+              "WITHDRAWN",
+              "VOIDED"
             ]
+          },
+          "workflowInstanceId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "workflowRevision": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "approvalId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Identifier a platform approval callback must quote while this node is under review"
           },
           "valuesJson": {
             "type": "string"
@@ -474,6 +873,9 @@
             "items": {
               "$ref": "#/components/schemas/Node"
             }
+          },
+          "templateSnapshot": {
+            "$ref": "#/components/schemas/TemplateSchema"
           }
         },
         "required": []
@@ -525,6 +927,446 @@
           "version",
           "task"
         ]
+      },
+      "Column": {
+        "type": "object",
+        "required": [
+          "id",
+          "label",
+          "format"
+        ],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "label": {
+            "type": "string"
+          },
+          "format": {
+            "type": "string",
+            "enum": [
+              "TEXT",
+              "NUMBER"
+            ]
+          },
+          "required": {
+            "type": "boolean"
+          }
+        }
+      },
+      "Field": {
+        "type": "object",
+        "required": [
+          "id",
+          "label",
+          "format"
+        ],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "label": {
+            "type": "string"
+          },
+          "format": {
+            "type": "string",
+            "enum": [
+              "TEXT",
+              "NUMBER",
+              "ORDERED",
+              "RICH",
+              "TABLE"
+            ]
+          },
+          "required": {
+            "type": "boolean"
+          },
+          "minimum": {
+            "type": "number"
+          },
+          "maximum": {
+            "type": "number"
+          },
+          "maxLength": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 100000
+          },
+          "columns": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Column"
+            }
+          }
+        }
+      },
+      "TemplateSchema": {
+        "type": "object",
+        "required": [
+          "templateId",
+          "revision",
+          "name",
+          "kind",
+          "fields"
+        ],
+        "properties": {
+          "templateId": {
+            "type": "string",
+            "maxLength": 100
+          },
+          "revision": {
+            "type": "string",
+            "maxLength": 50
+          },
+          "name": {
+            "type": "string",
+            "maxLength": 200
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "VEHICLE",
+              "TECHNICAL",
+              "TESTING",
+              "REPORT",
+              "CERTIFICATE"
+            ]
+          },
+          "regulationId": {
+            "type": "string"
+          },
+          "fields": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 500,
+            "items": {
+              "$ref": "#/components/schemas/Field"
+            }
+          }
+        }
+      },
+      "TemplateVersion": {
+        "type": "object",
+        "required": [
+          "id",
+          "published",
+          "schema"
+        ],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "published": {
+            "type": "boolean"
+          },
+          "schema": {
+            "$ref": "#/components/schemas/TemplateSchema"
+          }
+        }
+      },
+      "FieldValidationError": {
+        "type": "object",
+        "properties": {
+          "code": {
+            "const": "FIELD_VALIDATION"
+          },
+          "errors": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "path": {
+                  "type": "string"
+                },
+                "code": {
+                  "type": "string",
+                  "enum": [
+                    "required",
+                    "number",
+                    "positiveInteger",
+                    "range",
+                    "length",
+                    "text",
+                    "table",
+                    "unknown"
+                  ]
+                }
+              }
+            }
+          }
+        }
+      },
+      "Acknowledgement": {
+        "type": "object",
+        "required": [
+          "eventId",
+          "status",
+          "businessId"
+        ],
+        "properties": {
+          "eventId": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "ACCEPTED",
+              "DUPLICATE",
+              "APPLIED",
+              "IGNORED"
+            ]
+          },
+          "businessId": {
+            "type": "string"
+          }
+        }
+      },
+      "PlatformDispatch": {
+        "type": "object",
+        "required": [
+          "eventId",
+          "sourceTaskId",
+          "tenantId",
+          "name",
+          "workflowDefinitionVersion",
+          "ownerId"
+        ],
+        "properties": {
+          "eventId": {
+            "type": "string",
+            "maxLength": 200
+          },
+          "sourceTaskId": {
+            "type": "string",
+            "maxLength": 200
+          },
+          "sourceRevision": {
+            "type": "string"
+          },
+          "tenantId": {
+            "type": "string",
+            "maxLength": 100,
+            "description": "Must match the authenticated tenant"
+          },
+          "name": {
+            "type": "string",
+            "maxLength": 200
+          },
+          "workflowDefinitionVersion": {
+            "type": "string",
+            "maxLength": 100
+          },
+          "ownerId": {
+            "type": "string",
+            "maxLength": 100
+          }
+        }
+      },
+      "ApprovalCallback": {
+        "type": "object",
+        "required": [
+          "eventId",
+          "instanceId",
+          "approvalId",
+          "businessId",
+          "tenantId",
+          "actorId",
+          "decision",
+          "workflowRevision",
+          "occurredAt"
+        ],
+        "properties": {
+          "eventId": {
+            "type": "string",
+            "maxLength": 200
+          },
+          "instanceId": {
+            "type": "string",
+            "maxLength": 200
+          },
+          "approvalId": {
+            "type": "string",
+            "maxLength": 200
+          },
+          "businessId": {
+            "type": "string",
+            "maxLength": 200
+          },
+          "tenantId": {
+            "type": "string",
+            "maxLength": 100,
+            "description": "Must match the authenticated tenant"
+          },
+          "actorId": {
+            "type": "string",
+            "maxLength": 100
+          },
+          "decision": {
+            "type": "string",
+            "enum": [
+              "APPROVE",
+              "REJECT"
+            ]
+          },
+          "workflowRevision": {
+            "type": "string",
+            "maxLength": 100
+          },
+          "occurredAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "NodeStatus": {
+        "type": "object",
+        "required": [
+          "nodeId",
+          "level",
+          "kernelState",
+          "status",
+          "editable"
+        ],
+        "properties": {
+          "nodeId": {
+            "type": "string"
+          },
+          "level": {
+            "enum": [
+              "MAIN",
+              "SECTION",
+              "SUBTASK"
+            ]
+          },
+          "kernelState": {
+            "$ref": "#/components/schemas/Node/properties/state"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "pending",
+              "submitting",
+              "active",
+              "reviewing",
+              "completed",
+              "rejected",
+              "withdrawn",
+              "voided"
+            ]
+          },
+          "editable": {
+            "type": "boolean"
+          }
+        }
+      },
+      "TaskStatusView": {
+        "type": "object",
+        "required": [
+          "id",
+          "status",
+          "nodes"
+        ],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "pending",
+              "submitting",
+              "active",
+              "reviewing",
+              "completed",
+              "rejected",
+              "withdrawn",
+              "voided"
+            ]
+          },
+          "nodes": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/NodeStatus"
+            }
+          }
+        }
+      },
+      "OutboxEvent": {
+        "type": "object",
+        "required": [
+          "id",
+          "tenantId",
+          "aggregateId",
+          "eventType",
+          "payload",
+          "state",
+          "attempts",
+          "createdAt",
+          "availableAt"
+        ],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "tenantId": {
+            "type": "string"
+          },
+          "aggregateId": {
+            "type": "string"
+          },
+          "eventType": {
+            "type": "string"
+          },
+          "payload": {
+            "type": "string"
+          },
+          "state": {
+            "type": "string",
+            "enum": [
+              "PENDING",
+              "GENERATING",
+              "ARCHIVING",
+              "COMPLETED",
+              "FAILED"
+            ]
+          },
+          "attempts": {
+            "type": "integer"
+          },
+          "lastError": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "availableAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "ProcessResult": {
+        "type": "object",
+        "required": [
+          "processed",
+          "failed",
+          "skipped"
+        ],
+        "properties": {
+          "processed": {
+            "type": "integer"
+          },
+          "failed": {
+            "type": "integer"
+          },
+          "skipped": {
+            "type": "integer"
+          }
+        }
       }
     },
     "securitySchemes": {

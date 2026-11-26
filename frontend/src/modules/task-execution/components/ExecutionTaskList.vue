@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { displayedTaskStatus, taskPaused } from '../../projects/data/suspension';
 import { computed, reactive, ref, watch } from 'vue';
 import { useRouter } from 'vue-router';
 import { useI18n } from 'vue-i18n';
@@ -12,12 +13,14 @@ import ConfirmDialog from '../../../shared/components/ConfirmDialog.vue';
 import { TASK_STATUSES, type TaskStatus } from '../../../shared/taskLifecycle';
 import { statusRole } from '../../../shared/status';
 import { MOCK_CURRENT_USER, PRIORITY_CODES } from '../../projects/data/projects';
+import { assignmentIsMine } from '../../vehicle/data/collaboration';
+import type { FillingAssignment } from '../../vehicle/data/vehicle';
 import { recordTaskEvent } from '../../projects/data/history';
 import { useTaskCenterStore } from '../../task-center/stores/taskCenter';
 interface Row {
   id: string; project: string; regulation: string; status: TaskStatus;
   name?: string; priority?: string; createdAt?: string; end?: string; actual?: string;
-  owner?: string; executedAt?: string; reviewer?: string; reviewedAt?: string;
+  assignments?: FillingAssignment[]; owner?: string; executedAt?: string; reviewer?: string; reviewedAt?: string;
 }
 const props = defineProps<{ module: 'testing' | 'reports' | 'certificates' | 'technical'; rows: Row[]; withdrawTask?: (id: string, perspective: 'submitter' | 'approver') => boolean }>();
 const { t } = useI18n();
@@ -53,21 +56,23 @@ function changeFilters(items: ColumnSettingsItem[]) {
   page.value = 1;
 }
 function options(key: Key): string[] {
-  if (key === 'status') return [...TASK_STATUSES];
+  if (key === 'status') return [...TASK_STATUSES, 'paused'];
   if (key === 'priority') return [...PRIORITY_CODES];
-  return [...new Set(props.rows.map(row => row[key] || '').filter(Boolean))];
+  return [...new Set(scopedRows.value.map(row => row[key] || '').filter(Boolean))];
 }
 function optionLabel(key: Key, value: string) { return key === 'status' ? t(`taskStatus.${value}`) : key === 'priority' ? t(`projects.${value}`) : value; }
-function cell(row: Row, key: Key) { return optionLabel(key, row[key] || '') || '—'; }
+function cell(row: Row, key: Key) { if (key === 'status') return t(`taskStatus.${displayedTaskStatus(row.project, row.status)}`); return optionLabel(key, row[key] || '') || '—'; }
 function compare(a: Row, b: Row, key: Key, order: string) {
-  const x = a[key] || '', y = b[key] || '';
+  const x = key === 'status' ? displayedTaskStatus(a.project, a.status) : a[key] || '', y = key === 'status' ? displayedTaskStatus(b.project, b.status) : b[key] || '';
   if (!x || !y) return x ? -1 : y ? 1 : 0;
   return x.localeCompare(y, undefined, { numeric: true }) * (order === 'descend' ? -1 : 1);
 }
+function canParticipate(row: Row) { return row.owner === MOCK_CURRENT_USER.name || row.assignments?.some(group => assignmentIsMine(group,MOCK_CURRENT_USER.name,MOCK_CURRENT_USER.accountId)); }
+const scopedRows = computed(() => props.rows.filter(row => viewMode.value === 'approver' || canParticipate(row)));
 const results = computed(() => {
-  const rows = props.rows.filter(row => filterOrder.every(key => {
+  const rows = scopedRows.value.filter(row => filterOrder.every(key => {
     const value = applied.value[key]; if (!value) return true;
-    const text = row[key] || '';
+    const text = key === 'status' ? displayedTaskStatus(row.project, row.status) : row[key] || '';
     return dates.includes(key) ? text.slice(0, 10) === value : selects.includes(key) ? text === value : text.toLowerCase().includes(value.toLowerCase());
   }));
   return sortKey.value && direction.value ? [...rows].sort((a,b) => compare(a,b,sortKey.value!,direction.value!)) : rows;
@@ -75,26 +80,28 @@ const results = computed(() => {
 watch(results, () => { page.value = 1; });
 const visibleColumns = computed(() => columns.value.filter(item => item.visible));
 const tableColumns = computed<TableColumnData[]>(() => [
-  ...visibleColumns.value.map((item): TableColumnData => ({ title: label(item.key as Key), dataIndex: item.key, slotName: 'field', width: item.key === 'name' ? 280 : 180, fixed: item.key === 'regulation' ? 'left' as const : undefined,
+  ...visibleColumns.value.map((item): TableColumnData => ({ title: label(item.key as Key), dataIndex: item.key, slotName: 'field', ellipsis: item.key !== 'id', width: item.key === 'name' ? 280 : 180, fixed: item.key === 'regulation' ? 'left' as const : undefined,
     sortable: { sortDirections: ['ascend', 'descend'] as ('ascend' | 'descend')[], sortOrder: sortKey.value === item.key ? direction.value : '', sorter: (a, b, extra) => compare(a as unknown as Row, b as unknown as Row, item.key as Key, extra.direction) } })),
   { title: t('sections.action'), slotName: 'actions', width: 170, fixed: 'right' },
 ]);
 function sort(key: string, order: string) { sortKey.value = filterOrder.includes(key as Key) ? key as Key : undefined; direction.value = order === 'ascend' || order === 'descend' ? order : undefined; page.value = 1; }
 function actions(row: Row) {
-  if (row.status === 'pending') return ['execute'];
+  if (['pending','submitting','active','rejected','withdrawn'].includes(row.status) && !canParticipate(row)) return [];
+  if (row.status === 'pending' || row.status === 'active') return ['execute'];
   if (['submitting', 'rejected', 'withdrawn'].includes(row.status)) return ['edit'];
   if (row.status === 'reviewing') return [viewMode.value === 'submitter' ? 'withdraw' : 'review'];
   return [];
 }
 const withdrawing = ref<Row>();
 function open(row: Row, action: string) {
+  if (action !== 'view' && taskPaused(row.project, row.status)) return;
   if (action === 'withdraw') { withdrawing.value = row; return; }
   const mode = action;
   void router.push(`/tasks/${props.module}/${row.id}/${mode}`);
 }
 function withdraw() {
   const row = withdrawing.value;
-  if (!row || row.status !== 'reviewing' || viewMode.value !== 'submitter') { Message.warning(t('taskWithdrawal.changed')); withdrawing.value = undefined; return; }
+  if (!row || taskPaused(row.project, row.status) || row.status !== 'reviewing' || viewMode.value !== 'submitter') { Message.warning(t('taskWithdrawal.changed')); withdrawing.value = undefined; return; }
   if (props.withdrawTask) {
     try {
       if (!props.withdrawTask(row.id, viewMode.value)) { Message.warning(t('taskWithdrawal.changed')); return; }
@@ -151,17 +158,19 @@ async function exportRows() {
         </div>
       </div>
       <a-table row-key="id" :columns="tableColumns" :data="results.slice((page-1)*pageSize,page*pageSize)" :pagination="false" :bordered="false" :scroll="{ x: visibleColumns.reduce((sum,item) => sum + (item.key === 'name' ? 280 : 180), 170) }" @sorter-change="sort">
-        <template #field="{record,column}"><AppStatusTag v-if="column.dataIndex === 'status' || column.dataIndex === 'priority'" :role="column.dataIndex === 'status' ? statusRole(record.status, 'tasks') : record.priority === 'urgent' ? 'danger' : record.priority === 'high' ? 'warning' : 'neutral'" :label="cell(record, column.dataIndex)" /><span v-else>{{ cell(record,column.dataIndex) }}</span></template>
-        <template #actions="{record}"><div class="row-actions"><button type="button" @click="open(record,'view')">{{ t('sections.view') }}</button><button v-for="action in actions(record)" :key="action" type="button" @click="open(record,action)">{{ t(`sections.${action}`) }}</button></div></template>
+        <template #field="{record,column}"><AppStatusTag v-if="column.dataIndex === 'status' || column.dataIndex === 'priority'" :role="column.dataIndex === 'status' ? statusRole(displayedTaskStatus(record.project, record.status), 'tasks') : record.priority === 'urgent' ? 'danger' : record.priority === 'high' ? 'warning' : 'neutral'" :label="cell(record, column.dataIndex)" /><span v-else class="execution-cell-text" :class="{'is-task-number':column.dataIndex==='id'}" :title="cell(record,column.dataIndex)">{{ cell(record,column.dataIndex) }}</span><small v-if="column.dataIndex === 'status' && taskPaused(record.project, record.status)" :title="`${t('taskPause.previous')}: ${t(`taskStatus.${record.status}`)}`" class="pause-reason">{{ t('taskPause.reason') }}</small></template>
+        <template #actions="{record}"><div class="row-actions"><button type="button" @click="open(record,'view')">{{ t('sections.view') }}</button><button v-for="action in actions(record)" :key="action" :disabled="taskPaused(record.project, record.status)" :title="taskPaused(record.project, record.status) ? t('taskPause.disabled') : undefined" type="button" @click="open(record,action)">{{ t(`sections.${action}`) }}</button></div></template>
         <template #empty><a-empty :description="t(Object.values(applied).some(Boolean) ? 'executionList.noMatch' : 'executionList.empty')" /></template>
       </a-table>
       <AppPagination v-model:current="page" v-model:page-size="pageSize" :total="results.length" />
     </section>
-    <ConfirmDialog :visible="!!withdrawing" :title="t('taskWithdrawal.confirm')" :description="t('taskWithdrawal.description', { name: withdrawing?.name || withdrawing?.id })" @update:visible="!$event && (withdrawing = undefined)" @confirm="withdraw" />
+    <ConfirmDialog plain-title :visible="!!withdrawing" :title="t('taskWithdrawal.confirm')" :description="t('taskWithdrawal.description', { name: withdrawing?.name || withdrawing?.id })" @update:visible="!$event && (withdrawing = undefined)" @confirm="withdraw" />
     <ConfirmDialog v-model:visible="exportOpen" icon="info" :title="t('sections.exportNotice.title')" :description="[t('executionList.exportScope'), t('sections.exportNotice.line2')]" :ok-text="t('sections.exportNotice.confirm')" :ok-loading="exporting" :cancel-disabled="exporting" :dismissible="!exporting" @confirm="exportRows" />
   </div>
 </template>
 <style scoped>
+.execution-cell-text.is-task-number { white-space:normal; overflow:visible; overflow-wrap:anywhere; word-break:normal; text-overflow:clip; line-height:22px; }
+.execution-cell-text { display:block; min-width:0; max-width:100%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .execution-list { display: flex; flex-direction: column; gap: var(--mt-ds-space-3); min-width: 0; }
 .panel { min-width: 0; padding: var(--mt-ds-space-4); border-radius: 2px; background: var(--app-surface); }
 .list-panel { overflow: hidden; }
@@ -175,4 +184,6 @@ async function exportRows() {
 .row-actions button { padding:0; border:0; background:transparent; color:var(--app-color-primary); font:inherit; font-weight:400; cursor:pointer; }
 .row-actions button:hover { text-decoration:underline; }
 .row-actions button:focus-visible { outline:2px solid var(--app-color-primary); outline-offset:2px; }
+.pause-reason { display: block; color: var(--color-text-3); }
+.row-actions button:disabled { color: var(--color-text-4); cursor: not-allowed; }
 </style>

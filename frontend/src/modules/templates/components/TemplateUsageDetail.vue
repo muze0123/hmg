@@ -66,6 +66,6 @@ const taskFields = computed(() => {
 h2 { margin: 0; font-size: var(--mt-ds-font-title); line-height: var(--mt-ds-line-title); font-weight: var(--mt-ds-weight-title); }
 .task-header, .task-links { display: flex; align-items: center; flex-wrap: wrap; gap: var(--mt-ds-space-3); }
 .task-header { justify-content: space-between; }
-.task-links a { color: var(--app-color-primary); }
-.task-links a:hover { text-decoration: underline; }
+.task-links a { color: var(--app-color-primary); text-decoration: none; }
+.task-links a:focus-visible { outline: 2px solid var(--app-accent); outline-offset: 2px; }
 </style>

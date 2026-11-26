@@ -1,5 +1,5 @@
 import { tagRecords } from '../../tags/data/tags';
-import type { Vehicle } from './vehicle';
+import type { Vehicle, FillingAssignment } from './vehicle';
 
 /** Local collaboration contract; a server must enforce cell permissions and concurrent revisions. */
 export function ensureCollaboration(task: Vehicle) {
@@ -18,7 +18,20 @@ export function ensureCollaboration(task: Vehicle) {
     tag, label: tagRecords.value.find(item => item.id === tag)?.name || '', owner: tag === 'TAG-PROJECT' && /^PROJ-\d+-vehicle$/.test(task.id) ? '李四' : task.executor,
     status: ['reviewing', 'completed', 'rejected', 'withdrawn'].includes(task.status) ? 'submitted' : 'pending', reason: '',
   }));
+  if (['rejected','withdrawn'].includes(task.status) && task.assignments.length && task.assignments.every(group=>group.status==='submitted')) reopenCollaboration(task,task.status==='rejected' ? task.reviews?.at(-1)?.opinion || '' : '',task.status==='rejected');
 }
 export function collaborationReady(task: Vehicle) {
   return !!task.rowIds?.length && !!task.assignments?.length && task.assignments.every(group => group.owner && group.status === 'submitted');
+}
+
+export function assignmentIsMine(group: FillingAssignment, name: string, accountId = '') {
+  return group.owner === name || !!accountId && group.owner === accountId;
+}
+
+export function reopenCollaboration(task: Vehicle, reason = '', returned = false) {
+  for (const group of task.assignments || []) {
+    group.status = returned ? 'returned' : 'pending';
+    group.reason = reason;
+    group.submittedAt = undefined;
+  }
 }

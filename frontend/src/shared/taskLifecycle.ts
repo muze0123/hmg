@@ -1,6 +1,8 @@
 /** Canonical business lifecycle shared by main, section and execution tasks. */
 export const TASK_STATUSES = ['pending', 'submitting', 'active', 'reviewing', 'completed', 'rejected', 'withdrawn', 'voided'] as const;
 export type TaskStatus = typeof TASK_STATUSES[number];
+/** Main task filters share the approved lifecycle order. */
+export const MAIN_TASK_STATUSES = TASK_STATUSES;
 export const EDITABLE_TASK_STATUSES: readonly TaskStatus[] = ['pending', 'submitting', 'active', 'rejected', 'withdrawn'];
 export function isTaskStatus(value: unknown): value is TaskStatus {
   return typeof value === 'string' && (TASK_STATUSES as readonly string[]).includes(value);

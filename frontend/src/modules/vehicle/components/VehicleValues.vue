@@ -1,259 +1,262 @@
 <script setup lang="ts">
-import { computed, nextTick, ref } from 'vue';
+import { computed, nextTick, ref, shallowReactive, watch } from 'vue';
 import { useI18n } from 'vue-i18n';
 import { Message } from '@arco-design/web-vue';
-import { IconPlus, IconDelete, IconArrowUp, IconArrowDown, IconLeft, IconRight, IconMenuFold, IconMenuUnfold } from '@arco-design/web-vue/es/icon';
+import { IconPlusCircle, IconMinusCircle, IconQuestionCircle, IconInfoCircle, IconCheckCircleFill, IconExclamationCircleFill } from '@arco-design/web-vue/es/icon';
 import ConfirmDialog from '../../../shared/components/ConfirmDialog.vue';
-import AppFieldLabel from '../../../design/components/AppFieldLabel.vue';
-import AppStatusTag from '../../../design/components/AppStatusTag.vue';
 import RichValue from './RichValue.vue';
+import ParameterTableValue from './ParameterTableValue.vue';
 import { richHasContent } from '../../task-execution/utils/richText';
 import { partCatalogSeed, partLabel } from '../../task-execution/data/parts';
-import { people } from '../../projects/data/projects';
-import { collaborationReady } from '../data/collaboration';
+import { tagRecords, tagOwnerName } from '../../tags/data/tags';
+import { assignmentIsMine, collaborationReady } from '../data/collaboration';
 import type { Entry, Vehicle, FillingAssignment } from '../data/vehicle';
-const props = defineProps<{ readonly: boolean; manager: boolean; actor: string; tableLabel?: string; positiveEntryId?: string; positiveMessage?: string }>();
+const props = withDefaults(defineProps<{ readonly: boolean; manager: boolean; actor: string; actorId?: string; fillingMode?: boolean; showParts?: boolean; tableLabel?: string; positiveEntryId?: string; positiveMessage?: string }>(), { showParts: false, actorId: '' });
 const task = defineModel<Vehicle>({ required: true });
-const emit = defineEmits<{ change: []; save: [done: (success: boolean) => void] }>();
+const emit = defineEmits<{ change: []; save: [done: (success: boolean) => void, review: boolean] }>();
 const { t, locale } = useI18n();
 const root = ref<HTMLElement>();
-const mine = ref(false);
+const selectedTag = ref('__all__');
 const errors = ref<string[]>([]);
 const deleting = ref<number>();
-const owners = computed(() => [...new Set([props.actor, task.value.executor, ...people, ...(task.value.assignments || []).map(group => group.owner)])].filter(Boolean));
+const submitting = ref(false);
 const groups = computed(() => task.value.assignments || []);
-const visibleEntries = computed(() => [...task.value.entries].filter(entry => !mine.value || groupFor(entry)?.owner === props.actor).sort((a,b) => groups.value.findIndex(group => group.tag === a.tag) - groups.value.findIndex(group => group.tag === b.tag)));
+const mineGroups = computed(() => groups.value.filter(isMine));
+const ownEntries = computed(() => task.value.entries.filter(entry => isMine(groupFor(entry))));
+const orderedGroups = computed(() => [...groups.value].sort((a,b) => Number(isMine(b))-Number(isMine(a))));
+const visibleEntries = computed(() => task.value.entries.filter(entry => selectedTag.value === '__all__' || entry.tag === selectedTag.value));
+const progressEntries = computed(() => visibleEntries.value);
+const missingOwners = computed(() => groups.value.filter(group => !group.owner?.trim()).map(label).join('、'));
+const notice = computed(() => {
+  if (!props.fillingMode) return '';
+  if (!hasMineFields.value) return t(props.manager ? 'configurationMatrix.managerView' : 'configurationMatrix.noPermission');
+  if (mineSubmitted.value && !ready.value) return t('configurationMatrix.waitingOthers');
+  return '';
+});
+function groupState(group: FillingAssignment) {
+  if (group.status === 'submitted') return 'submitted';
+  return group.status === 'filling' || task.value.entries.some(entry => entry.tag === group.tag && entry.format !== 'ordered' && entry.values.some((_,row) => hasValue(entry,row))) ? 'filling' : 'pending';
+}
+function selectTag(tag: string) { if (!imageBusy.value) selectedTag.value = tag; }
+function navigateTag(offset: number, edge?: 'first'|'last') {
+  const tags = ['__all__', ...orderedGroups.value.map(group => group.tag)];
+  selectTag(tags[edge === 'first' ? 0 : edge === 'last' ? tags.length-1 : (tags.indexOf(selectedTag.value)+offset+tags.length)%tags.length]!);
+  nextTick(() => root.value?.querySelector<HTMLElement>('.assignment-tab[aria-selected="true"]')?.focus());
+}
 const ready = computed(() => collaborationReady(task.value));
-function label(group?: FillingAssignment) { return group?.label || t('vehicleCollab.unclassified'); }
+const hasMineFields = computed(() => ownEntries.value.length > 0);
+const mineSubmitted = computed(() => !!mineGroups.value.length && mineGroups.value.every(group => group.status === 'submitted'));
+const activeId = ref(task.value.rowIds?.[0] || '');
+const activeIndex = computed(() => Math.max(0, task.value.rowIds?.indexOf(activeId.value) ?? 0));
+const richRefs = shallowReactive(new Map<string, { imageBusy?: boolean }>());
+const imageBusy = computed(() => [...richRefs.values()].some(instance => instance.imageBusy));
+const overlayDirty = computed(() => imageBusy.value);
+watch(() => task.value.rowIds?.join('|'), () => { if (!task.value.rowIds?.includes(activeId.value)) activeId.value = task.value.rowIds?.[0] || ''; });
+function isMine(group?: FillingAssignment) { return !!group && assignmentIsMine(group,props.actor,props.actorId); }
 function groupFor(entry: Entry) { return groups.value.find(group => group.tag === entry.tag); }
-function editable(entry: Entry) { const group = groupFor(entry); return !props.readonly && group?.owner === props.actor && group.status !== 'submitted' && entry.format !== 'ordered' && !entry.referenceTaskId; }
-function changed() { errors.value = []; emit('change'); }
+function entryId(entry: Entry) { return entry.id || entry.name; }
+function key(entry: Entry, row: number) { return `${entryId(entry)}-${task.value.rowIds?.[row]}`; }
+function label(group?: FillingAssignment) { return group?.label || t('vehicleCollab.unclassified'); }
+function tagColor(tag: string) { const color = tagRecords.value.find(item => item.id === tag)?.color || 'blue'; return {'--matrix-tag-fg':`var(--app-tag-color-${color}-fg)`,'--matrix-tag-bg':`var(--app-tag-color-${color}-bg)`}; }
+function entryNumber(entry: Entry) { return entry.number || task.value.templateSnapshot?.entries.find(field => field.id === entry.id)?.number || '—'; }
+function entryNote(entry: Entry) { return entry.note || task.value.templateSnapshot?.entries.find(field => field.id === entry.id)?.note || ''; }
+function entryEditable(entry: Entry) { return !props.readonly && !submitting.value && isMine(groupFor(entry)) && groupFor(entry)?.status !== 'submitted' && entry.format !== 'ordered' && !entry.referenceTaskId; }
+function partEditable(entry: Entry) { return !props.readonly && !submitting.value && isMine(groupFor(entry)) && groupFor(entry)?.status !== 'submitted'; }
+function changed() { emit('change'); }
 function setValue(entry: Entry, row: number, value: string) {
-  if (!editable(entry)) return;
+  if (!entryEditable(entry) || entry.values[row] === value) return;
+  if (entry.format === 'rich' && !richHasContent(entry.values[row] || '') && !richHasContent(value)) return;
   entry.values[row] = value;
   const group = groupFor(entry); if (group) group.status = 'filling';
-  changed();
+  errors.value = errors.value.filter(error => error !== key(entry,row)); changed();
 }
-function assign(group: FillingAssignment, owner: string) {
-  if (!props.manager || props.readonly || group.status === 'submitted') return;
-  group.owner = owner; group.status = 'pending'; group.reason = ''; group.submittedAt = undefined; changed();
+function setPart(entry: Entry, value?: string) {
+  if (!partEditable(entry)) return;
+  entry.partId = value || ''; const group = groupFor(entry); if (group) group.status = 'filling';
+  errors.value = errors.value.filter(error => error !== `part-${entryId(entry)}`); changed();
 }
-function key(entry: Entry, row: number) { return `${entry.id || entry.name}-${task.value.rowIds?.[row]}`; }
+function hasValue(entry: Entry, row: number) { const value = entry.values[row] || ''; return entry.format === 'ordered' || (entry.format === 'rich' ? richHasContent(value) : !!value.replace(/[\s\t\n]/g,'')); }
 function invalid(entry: Entry, row: number) {
   const value = entry.values[row]?.trim() || '';
-  if (entry.format === 'ordered') return false;
+  if (entry.format === 'ordered' || entry.referenceTaskId) return false;
   if (entry.format === 'rich') return !richHasContent(value);
-  if (entry.format === 'table') return !value || value.split('\n').some(line => { const cells = line.split('\t'); return (entry.columns || []).some((_,index) => !cells[index]?.trim()); });
+  if (entry.format === 'table') return !value || value.split('\n').some(line => (entry.columns || []).some((_,index) => !line.split('\t')[index]?.trim()));
   return !value || entry.format === 'number' && (!Number.isFinite(Number(value)) || !!props.positiveEntryId && entry.id === props.positiveEntryId && Number(value) <= 0);
 }
-function partEditable(entry: Entry) { const group = groupFor(entry); return !props.readonly && group?.owner === props.actor && group.status !== 'submitted'; }
-function setPart(entry: Entry, value?: string) { if (!partEditable(entry)) return; entry.partId = value || ''; const group = groupFor(entry); if(group) group.status = 'filling'; changed(); }
-function partInvalid(entry: Entry) { return entry.partsCertificate === 'yes' && !partCatalogSeed.some(part => part.id === entry.partId); }
+function partInvalid(entry: Entry) { return props.showParts && entry.partsCertificate === 'yes' && !partCatalogSeed.some(part => part.id === entry.partId); }
+const legendStates = ['empty','partial','complete','invalid'] as const;
+type Progress = typeof legendStates[number];
+function parameterState(row: number): Progress {
+  if (progressEntries.value.some(entry => errors.value.includes(key(entry,row)) || errors.value.includes(`part-${entryId(entry)}`))) return 'invalid';
+  if (progressEntries.value.length && progressEntries.value.every(entry => !invalid(entry,row) && !partInvalid(entry))) return 'complete';
+  return progressEntries.value.some(entry => entry.format !== 'ordered' && hasValue(entry,row)) ? 'partial' : 'empty';
+}
+function progressCount(row: number) { return progressEntries.value.filter(entry => !invalid(entry,row) && !partInvalid(entry)).length; }
+function selectParameter(id: string, focus = false) { if (imageBusy.value) return; activeId.value = id; if(focus)nextTick(()=>root.value?.querySelector<HTMLElement>('.parameter-tab[aria-selected="true"]')?.focus()); }
+function navigateParameter(index: number, offset: number) { const ids = task.value.rowIds || []; if(ids.length) selectParameter(ids[(index+offset+ids.length)%ids.length]!,true); }
+function numberValue(entry: Entry) { const value = entry.values[activeIndex.value]; return value?.trim() && Number.isFinite(Number(value)) ? Number(value) : undefined; }
+function invalidMessage(entry: Entry) { return entry.id === props.positiveEntryId && props.positiveMessage ? props.positiveMessage : t(entry.format === 'number' ? 'vehicleFill.numberRequired' : 'vehicleFill.required'); }
 function validate(tag?: string) {
-  mine.value = false;
-  errors.value = task.value.entries.filter(entry => !tag || entry.tag === tag).flatMap(entry => (task.value.rowIds || []).flatMap((_,row) => invalid(entry,row) ? [key(entry,row)] : []));
-  errors.value.push(...task.value.entries.filter(entry => (!tag || entry.tag === tag) && partInvalid(entry)).map(entry => `part-${entry.id || entry.name}`));
-  if (!task.value.rowIds?.length || !task.value.entries.length) { Message.error(t('vehicleFill.empty')); return false; }
+  const entries = tag ? task.value.entries.filter(entry => entry.tag === tag) : ownEntries.value;
+  errors.value = entries.flatMap(entry => (task.value.rowIds || []).flatMap((_,row) => invalid(entry,row) ? [key(entry,row)] : []));
+  errors.value.push(...entries.filter(partInvalid).map(entry => `part-${entryId(entry)}`));
+  if (!task.value.rowIds?.length || !entries.length) { Message.error(t('vehicleFill.empty')); return false; }
   if (errors.value.length) {
-    const next = new Set(collapsedColumns.value);
-    for(const entry of task.value.entries) for(const [index,id] of (task.value.rowIds || []).entries()) if(errors.value.includes(key(entry,index))) next.delete(id);
-    collapsedColumns.value = next;
-    nextTick(() => { const cell = root.value?.querySelector<HTMLElement>('[data-invalid="true"]'); cell?.scrollIntoView({ block: 'center', inline: 'center' }); cell?.querySelector<HTMLElement>('input,button,[tabindex]')?.focus(); }); return false;
+    const row = task.value.rowIds.findIndex((_,row) => entries.some(entry => errors.value.includes(key(entry,row))));
+    activeId.value = task.value.rowIds[Math.max(0,row)]!;
+    selectedTag.value = entries.find(entry => errors.value.includes(key(entry,Math.max(0,row))) || errors.value.includes(`part-${entryId(entry)}`))?.tag || '__all__';
+    nextTick(() => { const cell = root.value?.querySelector<HTMLElement>('[data-invalid="true"]'); cell?.scrollIntoView({block:'center',inline:'nearest'}); cell?.querySelector<HTMLElement>('input,button,[contenteditable="true"],[tabindex]')?.focus(); });
+    return false;
   }
   return true;
 }
-async function submit(group: FillingAssignment) {
-  if (props.readonly || group.owner !== props.actor || group.status === 'submitted' || !validate(group.tag)) return;
-  const previous = { ...group };
-  group.status = 'submitted'; group.submittedAt = new Date().toISOString(); group.reason = ''; changed();
-  const saved = await new Promise<boolean>(done => emit('save', done));
-  if (!saved) Object.assign(group, previous);
+async function submitMine() {
+  if (props.readonly || submitting.value || imageBusy.value || !hasMineFields.value || mineSubmitted.value || !validate()) return false;
+  const previous = groups.value.map(group => ({...group}));
+  for (const group of mineGroups.value) { group.status = 'submitted'; group.submittedAt = new Date().toISOString(); group.reason = ''; }
+  submitting.value = true; changed();
+  try {
+    const saved = await new Promise<boolean>(done => emit('save',done,collaborationReady(task.value)));
+    if (!saved) task.value.assignments = previous;
+    return saved;
+  } finally { submitting.value = false; }
 }
-function resetSubmissions() { for (const group of groups.value) { group.status = group.status === 'submitted' ? 'pending' : group.status; group.submittedAt = undefined; } }
-/** 参数值列：行式存储（rowIds × entries）保持不变，仅在展示层转置为「配置项为行、参数值为列」。 */
-function addValueColumn() {
-  if (!props.manager || props.readonly) return;
-  task.value.rowIds!.push(crypto.randomUUID()); for (const entry of task.value.entries) entry.values.push(''); resetSubmissions(); changed();
+function resetSubmissions() { for (const group of groups.value) { if(group.status === 'submitted') group.status = 'pending'; group.submittedAt = undefined; } }
+function addValueColumn(after: number) {
+  if (!props.manager || props.readonly || imageBusy.value || submitting.value) return;
+  const id = crypto.randomUUID();
+  task.value.rowIds!.splice(after+1,0,id); for (const entry of task.value.entries) entry.values.splice(after+1,0,'');
+  activeId.value = id; resetSubmissions(); errors.value = []; changed();
+  nextTick(() => root.value?.querySelector<HTMLElement>('.parameter-tab[aria-selected="true"]')?.scrollIntoView({block:'nearest',inline:'nearest'}));
 }
-function removeValueColumn() {
-  const index = deleting.value;
-  if (index === undefined || !props.manager || props.readonly || task.value.rowIds!.length <= 1) return;
-  const removedId = task.value.rowIds![index]!;
-  task.value.rowIds!.splice(index,1); for (const entry of task.value.entries) entry.values.splice(index,1);
-  const next = new Set(collapsedColumns.value); next.delete(removedId); collapsedColumns.value = next;
-  deleting.value = undefined; resetSubmissions(); changed();
+function removeValueColumn(index = deleting.value) {
+  if(index === undefined || !props.manager || props.readonly || imageBusy.value || submitting.value || task.value.rowIds!.length <= 1) return;
+  const removedId = task.value.rowIds![index];
+  task.value.rowIds!.splice(index,1); for(const entry of task.value.entries) entry.values.splice(index,1);
+  if(activeId.value === removedId) activeId.value = task.value.rowIds![Math.min(index,task.value.rowIds!.length-1)]!;
+  deleting.value = undefined; resetSubmissions(); errors.value = []; changed();
 }
-function moveValueColumn(col: number, offset: number) {
-  if (!props.manager || props.readonly) return;
-  const target = col + offset; if (target < 0 || target >= task.value.rowIds!.length) return;
-  for (const list of [task.value.rowIds!, ...task.value.entries.map(entry => entry.values)]) { const [value] = list.splice(col,1); list.splice(target,0,value!); } changed();
+function requestDelete(index: number) {
+  if (!props.manager || props.readonly || imageBusy.value || task.value.rowIds!.length<=1) return;
+  if (task.value.entries.some(entry => entry.format !== 'ordered' && hasValue(entry,index))) deleting.value = index;
+  else removeValueColumn(index);
 }
-/** 单列 / 全部参数值列的收起与展开，纯展示态不触发脏数据。 */
-const collapsedColumns = ref<Set<string>>(new Set());
-const allCollapsed = computed(() => !!task.value.rowIds?.length && task.value.rowIds.every(id => collapsedColumns.value.has(id)));
-function toggleColumn(id: string) {
-  const next = new Set(collapsedColumns.value);
-  if (next.has(id)) next.delete(id); else next.add(id);
-  collapsedColumns.value = next;
-}
-function toggleAllColumns() {
-  collapsedColumns.value = allCollapsed.value ? new Set() : new Set(task.value.rowIds || []);
-}
-function entryDone(entry: Entry) { return groupFor(entry)?.status === 'submitted'; }
-const editor = ref<{ entry: Entry; row: number; value: string; original: string; writable: boolean }>();
-const editorLeave = ref(false);
-function openEditor(entry: Entry,row: number) { editor.value = { entry, row, value: entry.values[row] || '', original: entry.values[row] || '', writable: editable(entry) }; }
-function closeEditor() { if (editor.value?.value !== editor.value?.original) editorLeave.value = true; else editor.value = undefined; }
-function saveEditor() { if (!editor.value) return; setValue(editor.value.entry,editor.value.row,editor.value.value); editor.value = undefined; }
-function tableRows() { if (!editor.value) return []; const width = editor.value.entry.columns?.length || 1; return (editor.value.value || Array(width).fill('').join('\t')).split('\n').map(line => Array.from({length:width},(_,index) => line.split('\t')[index] || '')); }
-function editTable(row: number, column: number, value: string) { if (!editor.value?.writable) return; const rows = tableRows(); rows[row]![column] = value; editor.value.value = rows.map(row => row.join('\t')).join('\n'); }
-function tableRow(index?: number) { if (!editor.value?.writable) return; const rows = tableRows(); if(index === undefined) rows.push(Array(editor.value.entry.columns?.length || 1).fill('')); else if(rows.length > 1) rows.splice(index,1); editor.value.value = rows.map(row => row.join('\t')).join('\n'); }
-function moveTableRow(row: number, offset: number) { if (!editor.value?.writable) return; const rows = tableRows(); const target = row + offset; if (target < 0 || target >= rows.length) return; [rows[row], rows[target]] = [rows[target]!, rows[row]!]; editor.value.value = rows.map(line => line.join('\t')).join('\n'); }
-const returning = ref<FillingAssignment>();
-const reason = ref('');
-const reasonError = ref(false);
-const returnLeave = ref(false);
-function closeReturn() { if (actionBusy.value) return; if (reason.value.trim()) returnLeave.value = true; else returning.value = undefined; }
-const actionBusy = ref(false);
-async function returnGroup() {
-  if (!returning.value || !props.manager || props.readonly || actionBusy.value) return;
-  if (!reason.value.trim()) { reasonError.value = true; nextTick(() => document.getElementById('return-reason')?.focus()); return; }
-  const group = returning.value; const previous = { ...group };
-  group.status = 'returned'; group.reason = reason.value.trim(); group.submittedAt = undefined; changed(); actionBusy.value = true;
-  const saved = await new Promise<boolean>(done => emit('save', done));
-  actionBusy.value = false;
-  if (saved) returning.value = undefined; else Object.assign(group, previous);
-}
-function plainText(value: string) { const div = typeof document !== 'undefined' ? document.createElement('div') : undefined; if (div) div.innerHTML = value; return ((div?.textContent || div?.innerText) || value.replace(/<[^>]*>/g, '')).replace(/\*\*/g, '').replace(/\*/g, ''); }
-function summary(entry: Entry,row: number) { const value = entry.values[row] || ''; return entry.format === 'table' ? value.trim() ? t('vehicleCollab.tableRows',{count:value.split('\n').length}) : t('vehicleCollab.open') : plainText(value).trim().slice(0,40) || t('vehicleCollab.open'); }
-const overlayDirty = computed(() => !!editor.value && editor.value.value !== editor.value.original || !!reason.value.trim() && !!returning.value);
-defineExpose({ validate, ready, overlayDirty });
+function richRef(entry: Entry, instance: unknown) { if(instance) richRefs.set(entryId(entry),instance as {imageBusy?:boolean}); else richRefs.delete(entryId(entry)); }
+defineExpose({ validate, submitMine, ready, overlayDirty, hasMineFields, mineSubmitted, imageBusy });
 </script>
 <template>
-  <div ref="root" class="vehicle-values">
-    <div class="assignment-list">
-      <div v-for="group in groups" :key="group.tag" class="assignment">
-        <div class="assignment-summary"><span>{{ label(group) }}</span><AppStatusTag :role="group.status === 'submitted' ? 'success' : group.status === 'returned' ? 'danger' : 'info'" :label="t(`vehicleCollab.${group.status}`)" /><span class="muted">{{ t('vehicleCollab.fields', {count: task.entries.filter(entry => entry.tag === group.tag).length}) }}</span></div>
-        <div class="assignment-actions"><a-select v-if="manager && !readonly" :model-value="group.owner" :disabled="group.status === 'submitted'" :aria-label="t('vehicleCollab.owner', {tag:label(group)})" :placeholder="t('vehicleCollab.unassigned')" @update:model-value="value => assign(group,String(value))"><a-option v-for="owner in owners" :key="owner" :value="owner">{{ owner }}</a-option></a-select><span v-else>{{ group.owner || t('vehicleCollab.unassigned') }}</span><a-button v-if="!readonly && group.owner === actor && group.status !== 'submitted'" class="app-btn-neutral" size="small" @click="submit(group)">{{ t('vehicleCollab.submitMine') }}</a-button><a-button v-if="manager && !readonly && group.status === 'submitted'" class="app-btn-neutral" size="small" @click="returning = group; reason = ''; reasonError = false">{{ t('vehicleCollab.return') }}</a-button></div>
-        <p v-if="group.reason" class="return-note"><AppFieldLabel context="detail" :text="t('vehicleCollab.reason')" /> {{ group.reason }}</p>
+  <div ref="root" class="vehicle-values configuration-matrix">
+    <div class="matrix-toolbar">
+      <div class="assignment-list" role="tablist" :aria-label="t('configurationMatrix.assignments')" @keydown.right.prevent="navigateTag(1)" @keydown.left.prevent="navigateTag(-1)" @keydown.home.prevent="navigateTag(0,'first')" @keydown.end.prevent="navigateTag(0,'last')">
+        <button type="button" role="tab" class="assignment-tab" :aria-selected="selectedTag==='__all__'" :tabindex="selectedTag==='__all__'?0:-1" :disabled="imageBusy" aria-controls="configuration-fields" @click="selectTag('__all__')"><span>{{ t('configurationMatrix.all') }}</span><span class="assignment-count">（{{ task.entries.length }}）</span></button>
+        <button v-for="group in orderedGroups" :key="group.tag" type="button" role="tab" class="assignment-tab" :aria-selected="selectedTag===group.tag" :tabindex="selectedTag===group.tag?0:-1" :disabled="imageBusy" aria-controls="configuration-fields" :data-tag="group.tag" @click="selectTag(group.tag)">
+          <span class="matrix-tag" :style="tagColor(group.tag)">{{ label(group) }}</span><span class="assignment-owner">{{ tagOwnerName(group.owner) }}<span v-if="isMine(group)">（{{ t('configurationMatrix.me') }}）</span></span>
+          <span class="assignment-count">（{{ task.entries.filter(entry=>entry.tag===group.tag).length }}）</span>
+          <span class="assignment-state" :class="`is-${groupState(group)}`"><span class="assignment-dot" />{{ t(`vehicleCollab.${groupState(group)}`) }}</span>
+          <a-tooltip v-if="group.reason" :content="group.reason"><IconInfoCircle class="return-indicator" :aria-label="group.reason" /></a-tooltip>
+        </button>
+      </div>
+      <div class="matrix-tools">
+        <a-popover trigger="hover" position="bottom" :content-class="'matrix-help'">
+          <a-button type="text" class="instructions-button"><IconQuestionCircle /><span>{{ t('configurationMatrix.instructions') }}</span></a-button>
+          <template #content><div class="matrix-help-content"><p>{{ t('configurationMatrix.help') }}</p><div class="legend-item"><span class="legend-dot state-current" />{{ t('configurationMatrix.current') }}</div><div v-for="state in legendStates" :key="state" class="legend-item"><span class="legend-dot" :class="`state-${state}`" />{{ t(`configurationMatrix.states.${state}`) }}</div></div></template>
+        </a-popover>
       </div>
     </div>
-    <div class="grid-toolbar">
-      <span class="muted">{{ t('vehicleCollab.progress', {done:groups.filter(group => group.status === 'submitted').length,total:groups.length}) }}</span>
-      <a-space>
-        <a-checkbox v-model="mine">{{ t('vehicleCollab.onlyMine') }}</a-checkbox>
-        <a-button class="app-btn-neutral" @click="toggleAllColumns">{{ allCollapsed ? t('vehicleFill.expandAll') : t('vehicleFill.collapseAll') }}</a-button>
-        <a-button v-if="manager && !readonly" type="outline" class="add-column-button" @click="addValueColumn"><template #icon><IconPlus /></template>{{ t('vehicleFill.addColumn') }}</a-button>
-      </a-space>
-    </div>
+    <a-alert v-if="fillingMode && missingOwners" type="warning">{{ t('configurationMatrix.missingOwners',{tags:missingOwners}) }}</a-alert>
+    <a-alert v-if="notice" type="info">{{ notice }}</a-alert>
+    <div id="configuration-fields" role="tabpanel" class="configuration-fields">
     <div v-if="visibleEntries.length" class="table-scroll" tabindex="0" :aria-label="tableLabel || t('vehicle.items')">
-      <table class="parameter-table">
+      <table class="parameter-table" :class="{'has-parts':showParts}">
+        <colgroup><col class="no-column"><col class="item-column"><col v-if="showParts" class="part-column"><col></colgroup>
         <thead><tr>
           <th scope="col" class="col-no">{{ t('vehicleFill.no') }}</th>
           <th scope="col" class="col-item">{{ t('vehicleFill.item') }}</th>
-          <th scope="col" class="col-format">{{ t('vehicleFill.format') }}</th>
-          <th scope="col" class="col-status">{{ t('vehicleFill.status') }}</th>
-          <th scope="col" class="col-tag">{{ t('vehicleFill.tag') }}</th>
-          <th scope="col" class="col-part">{{ t('executionWorkspace.part') }}</th>
-          <th v-for="(id,col) in task.rowIds" :key="id" scope="col" class="col-value" :class="{ 'is-collapsed': collapsedColumns.has(id) }">
-            <div class="value-col-head">
-              <span v-if="!collapsedColumns.has(id)" class="value-col-title">{{ t('vehicleFill.valueColumn', {n: col + 1}) }}</span>
-              <a-button class="app-btn-neutral col-icon" :aria-label="`${collapsedColumns.has(id) ? t('vehicleFill.expand') : t('vehicleFill.collapse')} ${t('vehicleFill.valueColumn', {n: col + 1})}`" @click="toggleColumn(id)">
-                <IconMenuUnfold v-if="collapsedColumns.has(id)" /><IconMenuFold v-else />
-              </a-button>
-              <template v-if="manager && !readonly && !collapsedColumns.has(id)">
-                <a-button class="app-btn-neutral col-icon" :aria-label="t('vehicleFill.moveLeft', {n: col + 1})" :disabled="col === 0" @click="moveValueColumn(col, -1)"><IconLeft /></a-button>
-                <a-button class="app-btn-neutral col-icon" :aria-label="t('vehicleFill.moveRight', {n: col + 1})" :disabled="col === task.rowIds!.length - 1" @click="moveValueColumn(col, 1)"><IconRight /></a-button>
-                <a-button class="app-btn-neutral col-icon" :aria-label="t('vehicleFill.removeColumn', {n: col + 1})" :disabled="task.rowIds!.length <= 1" @click="deleting = col"><IconDelete /></a-button>
-              </template>
+          <th v-if="showParts" scope="col" class="col-part">{{ t('executionWorkspace.part') }}</th>
+          <th scope="col" class="col-value">
+            <div class="parameter-nav-scroll" tabindex="0" :aria-label="t('configurationMatrix.parameters')">
+              <div class="parameter-nav" role="tablist" :aria-label="t('configurationMatrix.parameters')">
+                <div v-for="(id,index) in task.rowIds" :key="id" class="parameter-nav-item">
+                  <a-tooltip :content="`${t('configurationMatrix.states.'+parameterState(index))} · ${t('configurationMatrix.progress',{done:progressCount(index),total:progressEntries.length})}`">
+                    <button type="button" role="tab" class="parameter-tab" :class="[`state-${parameterState(index)}`,{'is-current':id===activeId}]" :aria-selected="id===activeId" :tabindex="id===activeId?0:-1" @keydown.right.prevent="navigateParameter(index,1)" @keydown.left.prevent="navigateParameter(index,-1)" @keydown.home.prevent="selectParameter(task.rowIds![0]!,true)" @keydown.end.prevent="selectParameter(task.rowIds![task.rowIds!.length-1]!,true)" :aria-controls="`parameter-panel-${id}`" :disabled="imageBusy" @click="selectParameter(id)">
+                      <span>{{ t('vehicleFill.valueColumn',{n:index+1}) }}</span><IconCheckCircleFill v-if="parameterState(index)==='complete'" /><IconExclamationCircleFill v-else-if="parameterState(index)==='invalid'" /><span v-else class="parameter-dot" />
+                      <span class="parameter-state">{{ t(`configurationMatrix.states.${parameterState(index)}`) }}</span><span v-if="id===activeId" class="sr-only">{{ t('configurationMatrix.current') }}</span>
+                    </button>
+                  </a-tooltip>
+                  <template v-if="manager && !readonly">
+                    <a-tooltip :content="t('vehicleFill.addColumn')"><a-button type="text" class="parameter-action" :disabled="imageBusy || submitting" :aria-label="t('configurationMatrix.addParameterAfter',{n:index+1})" @click="addValueColumn(index)"><IconPlusCircle /></a-button></a-tooltip>
+                    <a-tooltip v-if="task.rowIds!.length>1" :content="t('configurationMatrix.removeParameter')"><a-button type="text" class="parameter-action" :disabled="imageBusy || submitting" :aria-label="t('vehicleFill.removeColumn',{n:index+1})" @click="requestDelete(index)"><IconMinusCircle /></a-button></a-tooltip>
+                  </template>
+                </div>
+              </div>
             </div>
           </th>
         </tr></thead>
-        <tbody>
-          <tr v-for="(entry,index) in visibleEntries" :key="entry.id || entry.name">
-            <td class="col-no">{{ index + 1 }}</td>
-            <td class="col-item">
-              <div>{{ entry.name }}</div>
-
+        <tbody :id="`parameter-panel-${activeId}`">
+          <tr v-for="entry in visibleEntries" :key="entryId(entry)">
+            <td class="col-no">{{ entryNumber(entry) }}</td>
+            <td class="col-item"><div class="item-heading"><span>{{ entry.name }}</span><span class="matrix-tag" :style="tagColor(entry.tag)">{{ label(groupFor(entry)) }}</span><a-tooltip v-if="entryNote(entry)" :content="entryNote(entry)"><a-button type="text" class="item-help" :aria-label="`${entry.name} ${t('configurationMatrix.instructions')}`"><IconInfoCircle /></a-button></a-tooltip></div></td>
+            <td v-if="showParts" class="col-part" :data-invalid="errors.includes(`part-${entryId(entry)}`)">
+              <a-select :model-value="entry.partId" :disabled="!partEditable(entry)" allow-search allow-clear :aria-label="`${t('executionWorkspace.part')} ${entry.name}`" :placeholder="t('executionWorkspace.selectPart')" @update:model-value="value=>setPart(entry,value?String(value):'')"><a-option v-for="part in partCatalogSeed" :key="part.id" :value="part.id">{{ partLabel(part.id) }}</a-option><a-option v-if="entry.partId && !partCatalogSeed.some(part=>part.id===entry.partId)" :value="entry.partId" disabled>{{ entry.partId }}</a-option></a-select>
+              <p v-if="errors.includes(`part-${entryId(entry)}`)" role="alert" class="field-error">{{ t('executionWorkspace.partRequired') }}</p>
             </td>
-            <td class="col-format">{{ t(`vehicle.${entry.format}`) }}</td>
-            <td class="col-status">{{ entryDone(entry) ? t('vehicleFill.done') : t('vehicleFill.toFill') }}</td>
-            <td class="col-tag">{{ label(groupFor(entry)) }}</td>
-            <td class="col-part" :data-invalid="errors.includes(`part-${entry.id || entry.name}`)">
-              <a-select v-if="partEditable(entry)" :model-value="entry.partId" allow-search allow-clear :aria-label="`${t('executionWorkspace.part')} ${entry.name}`" :placeholder="t('executionWorkspace.selectPart')" @update:model-value="value => setPart(entry,value ? String(value) : '')">
-                <a-option v-for="part in partCatalogSeed" :key="part.id" :value="part.id">{{ partLabel(part.id) }}</a-option>
-                <a-option v-if="entry.partId && !partCatalogSeed.some(part => part.id === entry.partId)" :value="entry.partId" disabled>{{ entry.partId }} · {{ t('executionWorkspace.partUnavailable') }}</a-option>
-              </a-select>
-              <span v-else>{{ partLabel(entry.partId) }}</span>
-              <p v-if="errors.includes(`part-${entry.id || entry.name}`)" role="alert" class="field-error">{{ t('executionWorkspace.partRequired') }}</p>
-            </td>
-            <td v-for="(id,col) in task.rowIds" :key="id" class="col-value" :data-invalid="errors.includes(key(entry,col))" :class="{ 'readonly-cell': !editable(entry), 'is-collapsed': collapsedColumns.has(id) }">
-              <template v-if="collapsedColumns.has(id)"><span class="collapsed-hint">…</span></template>
-              <template v-else>
-                <span v-if="entry.format === 'ordered'">{{ col + 1 }}</span>
-                <a-button v-else-if="['rich','table'].includes(entry.format)" type="text" class="cell-open" :aria-label="`${entry.name} ${col + 1}`" @click="openEditor(entry,col)">{{ summary(entry,col) }}</a-button>
-                <a-input v-else-if="editable(entry)" :model-value="entry.values[col]" :input-attrs="{'aria-label': `${entry.name} ${col + 1}`, inputmode: entry.format === 'number' ? 'decimal' : 'text'}" @update:model-value="value => setValue(entry,col,value)" />
-                <span v-else>{{ entry.values[col] || '—' }}</span>
-                <p v-if="errors.includes(key(entry,col))" role="alert" class="field-error">{{ entry.id === positiveEntryId && positiveMessage ? positiveMessage : t(entry.format === 'number' ? 'vehicleFill.numberRequired' : 'vehicleFill.required') }}</p>
-              </template>
+            <td class="col-value" :data-invalid="errors.includes(key(entry,activeIndex))">
+              <div class="value-control" :class="{'is-readonly':!entryEditable(entry),'is-invalid':errors.includes(key(entry,activeIndex))}">
+                <a-input v-if="entry.format==='ordered'" :model-value="String(activeIndex+1)" disabled :input-attrs="{'aria-label':`${entry.name} ${activeIndex+1}`}" />
+                <RichValue readonly-as-editor v-else-if="entry.format==='rich'" :key="`${entryId(entry)}-${activeId}-${locale}`" :ref="instance=>richRef(entry,instance)" :model-value="entry.values[activeIndex] || ''" :readonly="!entryEditable(entry)" :input-id="`rich-${entryId(entry)}-${activeId}`" :label="`${entry.name} ${activeIndex+1}`" @update:model-value="value=>setValue(entry,activeIndex,value)" />
+                <ParameterTableValue v-else-if="entry.format==='table'" :model-value="entry.values[activeIndex] || ''" :columns="entry.columns || []" :readonly="!entryEditable(entry)" :label="`${entry.name} ${activeIndex+1}`" :input-prefix="`${entryId(entry)}-${activeId}`" @update:model-value="value=>setValue(entry,activeIndex,value)" />
+                <a-input-number v-else-if="entry.format==='number'" :model-value="numberValue(entry)" :disabled="!entryEditable(entry)" :placeholder="t('configurationMatrix.enter')" :input-attrs="{'aria-label':`${entry.name} ${activeIndex+1}`,'aria-invalid':errors.includes(key(entry,activeIndex))}" @update:model-value="value=>setValue(entry,activeIndex,value===undefined?'':String(value))" />
+                <a-input v-else :model-value="entry.values[activeIndex] || ''" :disabled="!entryEditable(entry)" :placeholder="t('configurationMatrix.enter')" :input-attrs="{'aria-label':`${entry.name} ${activeIndex+1}`,inputmode:entry.format==='number'?'decimal':'text','aria-invalid':errors.includes(key(entry,activeIndex))}" @update:model-value="value=>setValue(entry,activeIndex,value)" />
+              </div>
+              <p v-if="errors.includes(key(entry,activeIndex))" role="alert" class="field-error">{{ invalidMessage(entry) }}</p>
             </td>
           </tr>
         </tbody>
       </table>
     </div>
-    <a-empty v-else :description="t('vehicleCollab.noFields')" />
+    <a-empty v-else :description="t('configurationMatrix.noFields')" />
+    </div>
   </div>
-  <a-drawer class="value-drawer" :visible="!!editor" :width="'min(900px, 100vw)'" :title="editor?.entry.name" :footer="true" :mask-closable="false" @cancel="closeEditor">
-    <template v-if="editor"><div class="value-drawer-group"><RichValue :key="locale" v-if="editor.entry.format === 'rich'" v-model="editor.value" :readonly="!editor.writable" input-id="cell-rich" :label="editor.entry.name" /><div v-else class="table-scroll"><table class="sub-table"><thead><tr><th v-for="(column,index) in editor.entry.columns" :key="index">{{ column }}</th><th v-if="editor.writable">{{ t('vehicle.action') }}</th></tr></thead><tbody><tr v-for="(line,row) in tableRows()" :key="row"><td v-for="(value,column) in line" :key="column"><a-input v-if="editor.writable" :model-value="value" :input-attrs="{'aria-label': `${editor.entry.name} ${row+1} ${editor.entry.columns?.[column]}`}" @update:model-value="value => editTable(row,column,value)" /><span v-else>{{ value || '—' }}</span></td><td v-if="editor.writable"><a-space size="mini"><a-button class="app-btn-neutral table-row-icon" :disabled="row === 0" :aria-label="t('vehicleCollab.up',{row:row+1})" @click="moveTableRow(row,-1)"><IconArrowUp /></a-button><a-button class="app-btn-neutral table-row-icon" :disabled="row === tableRows().length - 1" :aria-label="t('vehicleCollab.down',{row:row+1})" @click="moveTableRow(row,1)"><IconArrowDown /></a-button><a-button class="app-btn-neutral table-row-icon" :disabled="tableRows().length <= 1" :aria-label="t('vehicleFill.removeRow',{row:row+1})" @click="tableRow(row)"><IconDelete /></a-button></a-space></td></tr></tbody></table><a-button v-if="editor.writable" type="outline" class="add-row-button" @click="tableRow()">{{ t('vehicleFill.addRow') }}</a-button></div></div></template>
-    <template #footer><a-space><a-button class="app-btn-neutral" @click="closeEditor">{{ t('templates.cancel') }}</a-button><a-button v-if="editor?.writable" type="primary" @click="saveEditor">{{ t('vehicleCollab.apply') }}</a-button></a-space></template>
-  </a-drawer>
-  <a-modal role="dialog" aria-modal="true" :aria-label="t('vehicleCollab.returnTitle', {tag:label(returning)})" :visible="!!returning" :title="t('vehicleCollab.returnTitle', {tag:label(returning)})" :mask-closable="false" @cancel="closeReturn"><AppFieldLabel as="label" for="return-reason" context="editable" :text="t('vehicleCollab.reason')" /><a-textarea v-model="reason" :textarea-attrs="{id:'return-reason'}" :error="reasonError" /><p v-if="reasonError" role="alert" class="field-error">{{ t('vehicleCollab.reasonRequired') }}</p><template #footer><a-space><a-button class="app-btn-neutral" @click="closeReturn">{{ t('templates.cancel') }}</a-button><a-button type="primary" :loading="actionBusy" @click="returnGroup">{{ t('vehicleCollab.return') }}</a-button></a-space></template></a-modal>
-  <ConfirmDialog :visible="deleting !== undefined" :title="t('vehicleCollab.deleteTitle')" :description="t('vehicleCollab.deleteDescription')" @update:visible="deleting = undefined" @confirm="removeValueColumn" />
-  <ConfirmDialog unsaved :visible="editorLeave" :title="t('vehicle.unsaved')" @update:visible="editorLeave = false" @confirm="editorLeave = false; editor = undefined" />
-  <ConfirmDialog unsaved :visible="returnLeave" :title="t('vehicle.unsaved')" @update:visible="returnLeave = false" @confirm="returnLeave = false; returning = undefined" />
+  <ConfirmDialog plain-title :visible="deleting!==undefined" :title="t('vehicleCollab.deleteTitle')" :description="t('vehicleCollab.deleteDescription')" @update:visible="deleting=undefined" @confirm="removeValueColumn()" />
 </template>
 <style scoped>
-.vehicle-values { min-width: 0; display: flex; flex-direction: column; gap: var(--mt-ds-space-4); }
-.assignment-list { display: flex; flex-wrap: wrap; gap: var(--mt-ds-space-3); }
-.assignment { flex: 1 1 320px; min-width: 0; border: 1px solid var(--app-divider); padding: var(--mt-ds-space-4); }
-.assignment-summary, .assignment-actions { display: flex; flex-wrap: wrap; align-items: center; gap: var(--mt-ds-space-3); }
-.assignment-actions { margin-top: var(--mt-ds-space-3); }
-.assignment-actions :deep(.arco-select) { width: 160px; }
-.muted { color: var(--color-text-3); }
-.return-note { margin-bottom: 0; color: var(--app-color-danger); overflow-wrap: anywhere; }
-.grid-toolbar { display: flex; align-items: center; justify-content: space-between; gap: var(--mt-ds-space-3); flex-wrap: wrap; }
-.grid-toolbar :deep(.arco-space) { flex-wrap: wrap; }
-.table-scroll { max-width: 100%; overflow: auto; }
-.parameter-table, .sub-table { width: 100%; border-collapse: separate; border-spacing: 0; }
-/* 纵向矩阵：配置项为行、参数值为列；固定元信息列 + 可增删调序的动态参数值列。 */
-.parameter-table { width: max-content; min-width: 100%; }
-.parameter-table th, .parameter-table td, .sub-table th, .sub-table td { min-width: 160px; border-right: 1px solid var(--app-divider); border-bottom: 1px solid var(--app-divider); padding: var(--mt-ds-space-3); text-align: left; font-weight: var(--mt-ds-weight-body); vertical-align: top; }
-.parameter-table th, .sub-table th { border-top: 1px solid var(--app-divider); background: var(--app-table-header); }
-.parameter-table th:first-child, .parameter-table td:first-child, .sub-table th:first-child, .sub-table td:first-child { border-left: 1px solid var(--app-divider); }
-.parameter-table .col-no { min-width: 56px; width: 56px; text-align: center; }
-.parameter-table .col-item { min-width: 180px; }
-.parameter-table .col-format { min-width: 100px; }
-.parameter-table .col-status { min-width: 90px; }
-.parameter-table .col-part { min-width: 240px; max-width: 280px; }
-.parameter-table .col-part :deep(.arco-select) { width: 240px; }
-.parameter-table .col-tag { min-width: 100px; }
-.parameter-table .col-value { min-width: 180px; }
-/* 收起的列收窄到刚好容纳一个展开按钮，表头与单元格内容居中。 */
-.parameter-table .col-value.is-collapsed { min-width: 44px; width: 44px; padding-left: var(--mt-ds-space-2); padding-right: var(--mt-ds-space-2); }
-.value-col-head { display: flex; align-items: center; gap: var(--mt-ds-space-1); flex-wrap: wrap; }
-.parameter-table .col-value.is-collapsed .value-col-head { justify-content: center; }
-.parameter-table td.col-value.is-collapsed { text-align: center; }
-.value-col-title { font-weight: var(--mt-ds-weight-body); }
-.col-icon.arco-btn, .sub-table .table-row-icon.arco-btn { display: inline-grid; flex: 0 0 24px; width: 24px; height: 24px; padding: 0; place-items: center; }
-.collapsed-hint { color: var(--color-text-3); letter-spacing: 2px; }
-.cell-open { max-width: 100%; white-space: normal; height: auto; text-align: left; }
-.readonly-cell { background: var(--app-fill-1); overflow-wrap: anywhere; }
-.field-error { margin: var(--mt-ds-space-2) 0 0; color: var(--app-color-danger); }
-.sub-table { margin-bottom: var(--mt-ds-space-3); }
-/* 新增参数值列 / 新增数据行：outline primary，透明底 + 主色高亮描边与文字，不叠加 app-btn-neutral（否则会被覆盖成灰描边）。 */
-.add-column-button.arco-btn, .add-row-button.arco-btn { background-color: transparent; }
-/* 抽屉内容分组白卡（灰画布由 global.css 的 .value-drawer 规则提供）；
-   富文本与表格区块统一 100% 填满白卡内容区，左右与卡片 16px 内边距对齐。 */
-.value-drawer-group { width: 100%; padding: 16px; border-radius: 2px; background: var(--app-surface); }
-.value-drawer-group .rich-value, .value-drawer-group .table-scroll { width: 100%; max-width: 100%; }
+.vehicle-values { min-width:0; display:flex; flex-direction:column; gap:var(--mt-ds-space-4); }
+.matrix-toolbar { display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:var(--mt-ds-space-4); }
+.assignment-list { display:flex; align-items:center; flex:1; gap:var(--mt-ds-space-3); overflow-x:auto; min-width:0; padding:2px; }
+.assignment-tab { display:flex; align-items:center; flex-shrink:0; gap:var(--mt-ds-space-2); min-height:36px; padding:4px var(--mt-ds-space-4); border:1px solid var(--app-divider); border-radius:999px; background:var(--app-surface); color:var(--color-text-1); font:inherit; cursor:pointer; white-space:nowrap; }
+.assignment-tab[aria-selected="true"] { color:var(--app-color-primary); border-color:var(--app-color-primary); }
+.assignment-tab:hover { background:var(--app-fill-1); }.assignment-tab:focus-visible { outline:2px solid var(--app-color-primary); outline-offset:-3px; }
+.assignment-owner { color:var(--color-text-1); }.assignment-count { color:inherit; }.assignment-tab .matrix-tag { padding:2px 8px; }
+.assignment-state { display:inline-flex; align-items:center; gap:4px; font-size:var(--mt-ds-font-caption); }.assignment-dot { width:5px; height:5px; background:currentColor; border-radius:50%; }
+.assignment-state.is-submitted { color:var(--app-color-success); }.assignment-state.is-filling { color:var(--app-color-warning); }.configuration-fields { min-width:0; width:100%; }
+.assignment-summary { display:flex; align-items:center; flex-wrap:wrap; gap:var(--mt-ds-space-2); font-weight:var(--mt-ds-weight-body); }
+.assignment-separator,.assignment-state { color:var(--color-text-3); }.assignment-state.is-complete { color:var(--app-color-success); }
+.matrix-tag { display:inline-flex; align-items:center; padding:2px 8px; border-radius:var(--mt-ds-radius-sm,2px); color:var(--matrix-tag-fg); background:var(--matrix-tag-bg); font-size:var(--mt-ds-font-caption); font-weight:var(--mt-ds-weight-body); white-space:nowrap; }
+.return-indicator { color:var(--app-color-danger); }
+.matrix-tools { display:flex; align-items:center; flex-wrap:wrap; gap:var(--mt-ds-space-4); margin-left:auto; }
+.instructions-button.arco-btn { display:inline-flex; align-items:center; gap:var(--mt-ds-space-2); padding:0; color:var(--color-text-2); }
+.matrix-help-content { max-width:340px; }.matrix-help-content p { margin:0 0 var(--mt-ds-space-3); }.legend-item { display:flex; align-items:center; gap:var(--mt-ds-space-2); margin-top:var(--mt-ds-space-2); }
+.legend-dot { width:12px; height:12px; flex-shrink:0; border:2px solid currentColor; border-radius:50%; }.state-current { color:var(--app-color-primary); }
+.state-empty { color:var(--color-text-3); }.state-partial { color:var(--app-color-warning); }.state-complete { color:var(--app-color-success); }.state-invalid { color:var(--app-color-danger); }
+.table-scroll { width:100%; min-width:0; overflow-x:auto; }
+.parameter-table { width:100%; min-width:720px; border-collapse:collapse; table-layout:fixed; }.parameter-table.has-parts { min-width:980px; }
+.no-column { width:120px; }.item-column { width:220px; }.part-column { width:240px; }
+.parameter-table th,.parameter-table td { padding:var(--mt-ds-space-4); border-bottom:1px solid var(--app-divider); font-size:var(--mt-ds-font-body); font-weight:var(--mt-ds-weight-body); text-align:left; vertical-align:top; }
+.parameter-table th { background:var(--app-table-header); vertical-align:middle; }
+.parameter-table .col-no { white-space:nowrap; }.item-heading { display:flex; align-items:center; flex-wrap:wrap; gap:var(--mt-ds-space-2); }
+.item-help.arco-btn { display:inline-grid; place-items:center; width:24px; height:24px; padding:0; color:var(--color-text-3); }
+.col-part :deep(.arco-select) { width:100%; }.parameter-nav-scroll { overflow-x:auto; max-width:100%; padding:3px; }
+.parameter-nav { display:flex; align-items:center; gap:var(--mt-ds-space-4); width:max-content; min-width:100%; }.parameter-nav-item { display:flex; align-items:center; flex-shrink:0; gap:var(--mt-ds-space-1); }
+.parameter-tab { display:inline-flex; align-items:center; gap:var(--mt-ds-space-2); padding:6px 12px; border:1px solid var(--app-divider); border-radius:18px; background:var(--app-surface); font:inherit; font-weight:var(--mt-ds-weight-body); cursor:pointer; white-space:nowrap; }
+.parameter-tab.is-current { border-color:var(--app-color-primary); box-shadow:0 0 0 1px var(--app-color-primary); }.parameter-tab:focus-visible { outline:2px solid var(--app-color-primary); outline-offset:3px; }.parameter-tab:disabled { cursor:wait; }
+.parameter-tab>span:first-child { color:var(--color-text-1); }.parameter-tab.is-current>span:first-child { color:var(--app-color-primary); }.parameter-state { font-size:var(--mt-ds-font-caption); }.parameter-dot { width:6px; height:6px; border-radius:50%; background:currentColor; }
+.parameter-action.arco-btn { display:inline-grid; place-items:center; width:28px; height:28px; padding:0; color:var(--color-text-3); }.parameter-action.arco-btn:hover { color:var(--app-color-primary); }.parameter-action :deep(.arco-icon) { font-size:18px; }
+.value-control { min-width:0; }.value-control :deep(.arco-input-number) { width:100%; }.value-control.is-readonly { background:transparent; color:var(--color-text-1); }.value-control.is-readonly :deep(.rich-preview) { min-height:var(--mt-ds-control-height); padding:var(--mt-ds-space-2); }
+.value-control :deep(.arco-input-wrapper.arco-input-disabled),
+.value-control :deep(.arco-input-wrapper.arco-input-disabled:hover),
+.value-control :deep(.arco-input-number.arco-input-number-disabled) { background-color:var(--app-surface); border-color:var(--app-control-border); color:var(--color-text-1); }
+.value-control :deep(.arco-input[disabled]) { color:var(--color-text-1); -webkit-text-fill-color:var(--color-text-1); opacity:1; }
+.value-control :deep(.arco-input[disabled]::placeholder) { color:var(--color-text-3); -webkit-text-fill-color:var(--color-text-3); }
+.value-control.is-invalid { outline:1px solid var(--app-color-danger); outline-offset:2px; }.field-error { margin:var(--mt-ds-space-2) 0 0; color:var(--app-color-danger); }
+.sr-only { position:absolute; width:1px; height:1px; overflow:hidden; clip-path:inset(50%); white-space:nowrap; }
 </style>

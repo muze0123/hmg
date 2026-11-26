@@ -14,7 +14,7 @@ public class TemplateValidator {
   Set<String> known = new HashSet<>();
   for (Field field : schema.fields()) {
    known.add(field.id()); Object value = values.get(field.id());
-   if (empty(value)) {
+   if (empty(value) || field.format() == Format.TABLE && value instanceof List<?> list && list.isEmpty()) {
     if (complete && field.required()) errors.add(new FieldError(field.id(), "required"));
     continue;
    }
@@ -40,8 +40,7 @@ public class TemplateValidator {
   if (!errors.isEmpty()) throw new FieldValidationException(errors);
  }
  private boolean empty(Object value) {
-  return value == null || value instanceof String text && text.replaceAll("<[^>]*>", "").replace("&nbsp;", " ").isBlank()
-   || value instanceof List<?> list && list.isEmpty();
+  return value == null || value instanceof String text && text.replaceAll("<[^>]*>", "").replace("&nbsp;", " ").isBlank();
  }
  private void scalar(String path, Format format, Object value, BigDecimal min, BigDecimal max, Integer length, List<FieldError> errors) {
   if (format == Format.NUMBER || format == Format.ORDERED) {

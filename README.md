@@ -32,4 +32,14 @@ pnpm design:audit
 
 身份、组织用户、流程、文件、消息及审计通过平台适配层接入 OpenData。现有 OpenData WarmFlow 实现作为流程对接候选，需通过接口和集成测试验证。平台后端尚未完成期间，替代服务仅用于开发测试。
 
-已建立三级任务内核及接口契约，运行命令见 `backend/README.md`。领域模型和审批规则见 `contracts/task-model-and-lifecycle.md`，平台契约见 `contracts/platform-integration.md`。真实平台接入、文件生成及归档消费者仍待后续实现。
+已建立三级任务内核及接口契约，运行命令见 `backend/README.md`。领域模型和审批规则见 `contracts/task-model-and-lifecycle.md`，平台契约见 `contracts/platform-integration.md`。真实平台接入与正式文件生成/归档仍待后续实现（dev 仅提供 outbox 本地处理器和 stand-in 引用）。
+
+## 任务链路接口模式
+
+```bash
+pnpm backend:dev
+# 另一终端
+pnpm dev:connected
+```
+
+访问前端日志中的 Local 地址，使用后端开发账号登录。先在模版配置创建并发布版本，再在任务管理创建主任务，配置分项、法规及固定模版版本，进入子项填写并提交，使用审批账号完成逐级审批。完整边界见 backend/README.md。
